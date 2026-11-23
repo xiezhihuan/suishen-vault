@@ -122,6 +122,16 @@ impl AiGateway<'_> {
         client: ClientId,
         query: &str,
     ) -> std::result::Result<Vec<AiSearchHit>, AiSearchError> {
+        self.search_with_tags(client, query, &[])
+    }
+
+    /// 空标签表示可见所有已对 AI 开放的记录。先过滤，再排名和计入枚举配额。
+    pub fn search_with_tags(
+        &mut self,
+        client: ClientId,
+        query: &str,
+        tags: &[String],
+    ) -> std::result::Result<Vec<AiSearchHit>, AiSearchError> {
         let mut usage = self
             .quota
             .read(client)
@@ -150,6 +160,7 @@ impl AiGateway<'_> {
             .entries
             .iter()
             .filter(|(_, e)| e.record.ai_visible())
+            .filter(|(_, e)| tags.is_empty() || tags.iter().any(|t| e.record.tags.contains(t)))
             .filter_map(|(id, e)| score(&q, &e.index, None).map(|s| (s.total, *id, e)))
             .collect();
         found.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));

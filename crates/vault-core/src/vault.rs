@@ -228,6 +228,8 @@ pub struct Vault {
 }
 
 /// 待写入的一行元数据；字段为 `None` 表示字段行不动。
+pub type StoredClient = ([u8; 16], zeroize::Zeroizing<Vec<u8>>);
+
 type RowPut = (ItemId, u64, Vec<u8>, Option<Vec<RawField>>);
 
 /// 一次提交中的改动。
@@ -819,6 +821,107 @@ impl Vault {
         Totp::parse(&seed)?.at(secs)
     }
 
+    // ---- 设备服务的加密本地数据，不随备份或迁移转移 ----
+    pub fn service_clients(&self) -> Result<Vec<StoredClient>> {
+        use crate::crypto::aead::{self, Aad, Purpose};
+        let key = self.mdk()?;
+        let mut stmt = self
+            .store
+            .service_db()
+            .prepare("SELECT id,blob FROM client ORDER BY id LIMIT 65")?;
+        let mut rows = stmt.query([])?;
+        let mut clients = Vec::new();
+        while let Some(row) = rows.next()? {
+            let id: [u8; 16] = row.get(0)?;
+            let blob: Vec<u8> = row.get(1)?;
+            let aad = Aad::new(Purpose::Client, &self.header.vault_id).part(&id);
+            clients.push((id, aead::open(key, &aad, &blob)?));
+        }
+        Ok(clients)
+    }
+
+    pub fn store_client(&self, id: [u8; 16], data: &[u8]) -> Result<()> {
+        use crate::crypto::aead::{self, Aad, Purpose};
+        self.active()?;
+        let aad = Aad::new(Purpose::Client, &self.header.vault_id).part(&id);
+        let blob = aead::seal(self.mdk()?, &aad, data)?;
+        self.store.service_db().execute(
+            "INSERT OR REPLACE INTO client VALUES (?1,?2)",
+            rusqlite::params![id, blob],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_client(&self, id: [u8; 16]) -> Result<()> {
+        self.active()?;
+        self.store
+            .service_db()
+            .execute("DELETE FROM client WHERE id=?1", [id])?;
+        Ok(())
+    }
+
+    /// 查询可能夹带密码，记录带密钥的查询指纹，供主设备核对。
+    pub fn query_fingerprint(&self, query: &str) -> Result<String> {
+        use hmac::{Hmac, KeyInit, Mac};
+        let key = crate::crypto::hkdf_sha256(
+            self.mdk()?.expose(),
+            &self.header.vault_id,
+            b"audit-query",
+        )?;
+        let mut mac =
+            Hmac::<sha2::Sha256>::new_from_slice(key.expose()).map_err(|_| Error::Storage)?;
+        mac.update(query.as_bytes());
+        Ok(crate::model::hex(&mac.finalize().into_bytes()))
+    }
+
+    pub fn append_service_audit(&self, record: &[u8]) -> Result<()> {
+        use crate::crypto::aead::{self, Aad, Purpose};
+        let db = self.store.service_db();
+        let tx = db.unchecked_transaction()?;
+        let id: i64 = tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM audit", [], |r| r.get(0))?;
+        let aad = Aad::new(Purpose::Audit, &self.header.vault_id).int(id as u64);
+        let blob = aead::seal(self.mdk()?, &aad, record)?;
+        tx.execute(
+            "INSERT INTO audit VALUES (?1,?2)",
+            rusqlite::params![id, blob],
+        )?;
+        tx.execute(
+            "DELETE FROM audit WHERE id <= ?1",
+            [id.saturating_sub(10000)],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn recent_service_audit(&self) -> Result<Vec<zeroize::Zeroizing<Vec<u8>>>> {
+        use crate::crypto::aead::{self, Aad, Purpose};
+        self.writable()?;
+        let mut stmt = self
+            .store
+            .service_db()
+            .prepare("SELECT id,blob FROM audit ORDER BY id DESC LIMIT 100")?;
+        let mut rows = stmt.query([])?;
+        let mut events = Vec::new();
+        while let Some(row) = rows.next()? {
+            let aad =
+                Aad::new(Purpose::Audit, &self.header.vault_id).int(row.get::<_, i64>(0)? as u64);
+            events.push(aead::open(self.mdk()?, &aad, &row.get::<_, Vec<u8>>(1)?)?);
+        }
+        Ok(events)
+    }
+
+    pub fn ai_item(&self, id: ItemId, tags: &[String]) -> Result<(u64, ItemMeta)> {
+        self.active()?;
+        self.mdk()?;
+        let e = self.entry(id)?;
+        if !e.record.ai_visible()
+            || !(tags.is_empty() || tags.iter().any(|tag| e.record.tags.contains(tag)))
+        {
+            return Err(Error::UnknownItem);
+        }
+        Ok((e.rev, e.record.view(id)))
+    }
+
     // ---- 授权 ----
 
     /// 批准一次授权：无论当前是否已解锁，都重新验证，临时取得机密密钥，只解密获批字段。
@@ -993,7 +1096,7 @@ impl Vault {
         self.mdk()
     }
 
-    pub(crate) fn reauthenticate(&mut self, auth: Auth<'_>) -> Result<()> {
+    pub fn reauthenticate(&mut self, auth: Auth<'_>) -> Result<()> {
         self.authenticate(&auth.input(), |s, v, k| s.unwrap_secret_key(v, k))
             .map(drop)
     }

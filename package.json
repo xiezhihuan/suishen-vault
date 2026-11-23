@@ -6,6 +6,8 @@
   "engines": { "node": ">=22.12" },
   "scripts": {
     "test": "node scripts/test.mjs",
+    "test:mcp": "node scripts/test-mcp.mjs",
+    "mcp:config": "node scripts/mcp-config.mjs",
     "cargo": "node scripts/cargo.mjs",
     "client:dev": "node scripts/tauri.mjs dev",
     "client:build": "node scripts/tauri.mjs build"

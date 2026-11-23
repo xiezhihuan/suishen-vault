@@ -16,7 +16,15 @@ use crate::policy::FORMAT_VERSION;
 const APPLICATION_ID: i32 = 0x5356_4C54; // "SVLT"
 
 /// 建表语句，同时是打开时核对结构的依据。没有索引、触发器、视图。
-const SCHEMA: [(&str, &str); 6] = [
+const SCHEMA: [(&str, &str); 8] = [
+    (
+        "audit",
+        "CREATE TABLE audit (id INTEGER PRIMARY KEY, blob BLOB NOT NULL) STRICT",
+    ),
+    (
+        "client",
+        "CREATE TABLE client (id BLOB NOT NULL PRIMARY KEY, blob BLOB NOT NULL) STRICT, WITHOUT ROWID",
+    ),
     (
         "header",
         "CREATE TABLE header (id INTEGER PRIMARY KEY CHECK (id = 1), vault_id BLOB NOT NULL, \
@@ -185,7 +193,15 @@ impl Store {
         if ver != i64::from(FORMAT_VERSION) {
             return Err(Error::UnsupportedFormat);
         }
-        check_schema(&conn)?;
+        // 格式 1 的首版只有后六张表。只有完整核对旧结构后才升级，事务可重试。
+        if check_schema(&conn, &SCHEMA).is_err() {
+            check_schema(&conn, &SCHEMA[2..])?;
+            let tx = conn.unchecked_transaction()?;
+            for (_, sql) in &SCHEMA[..2] {
+                tx.execute_batch(sql)?;
+            }
+            tx.commit()?;
+        }
         let ok: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
         if ok != "ok" {
             return Err(Error::Tampered);
@@ -261,6 +277,10 @@ impl Store {
             params![count, at_ms],
         )?;
         Ok(())
+    }
+
+    pub(crate) fn service_db(&self) -> &Connection {
+        &self.conn
     }
 
     pub(crate) fn search_quota(&self, client: [u8; 16]) -> Result<Option<Vec<u8>>> {
@@ -495,11 +515,11 @@ fn configure(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn check_schema(conn: &Connection) -> Result<()> {
+fn check_schema(conn: &Connection, schema: &[(&str, &str)]) -> Result<()> {
     let mut stmt =
         conn.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY name")?;
     let mut rows = stmt.query([])?;
-    let mut expected = SCHEMA.iter();
+    let mut expected = schema.iter();
     while let Some(r) = rows.next()? {
         let (name, sql) = expected.next().ok_or(Error::Tampered)?;
         let same = r.get::<_, String>(0)? == "table"

@@ -11,6 +11,7 @@ mod backup;
 pub mod clock;
 mod codec;
 mod crypto;
+pub mod delivery;
 mod error;
 mod fsutil;
 pub mod generator;

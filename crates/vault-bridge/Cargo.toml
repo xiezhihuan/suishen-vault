@@ -10,3 +10,10 @@ workspace = true
 
 [dependencies]
 vault-core.workspace = true
+vault-service.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt", "macros"] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+rmcp = { version = "=3.11.0", default-features = false, features = ["transport-io", "server"] }
+rpassword = "7"
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
