@@ -1,0 +1,13 @@
+{
+  "name": "suishen-vault",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/client"],
+  "engines": { "node": ">=22.12" },
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "cargo": "node scripts/cargo.mjs",
+    "client:dev": "node scripts/tauri.mjs dev",
+    "client:build": "node scripts/tauri.mjs build"
+  }
+}

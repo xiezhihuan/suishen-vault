@@ -1,0 +1,40 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/vault-core",
+  "crates/vault-service",
+  "crates/vault-relay",
+  "crates/vault-bridge",
+  "apps/client/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+publish = false
+
+[workspace.dependencies]
+vault-core = { path = "crates/vault-core" }
+vault-service = { path = "crates/vault-service" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.12", features = [] }
+tauri-build = { version = "2.7", features = [] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+# 防止把敏感值顺手打印出来：正式日志走统一的白名单日志层
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+
+[profile.dev]
+# 控制磁盘占用：本机可用空间约 20GB
+debug = "line-tables-only"
+
+[profile.release]
+strip = true
+lto = "thin"

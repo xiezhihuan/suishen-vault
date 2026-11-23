@@ -1,0 +1,32 @@
+// 确认 .gitignore 能挡住产物与敏感文件，且没有敏感文件已被跟踪。
+import { spawnSync } from "node:child_process";
+import { root } from "./env.mjs";
+
+const git = (args, input) => spawnSync("git", args, { cwd: root, input, encoding: "utf8" });
+
+const mustIgnore = [
+  "target/debug/x", "node_modules/x", "apps/client/node_modules/x", "apps/client/dist/x",
+  ".env", ".env.local", "relay.pem", "device.key", "AuthKey.p8", "sign.p12", "sign.pfx",
+  "release.jks", "upload.keystore", "a.mobileprovision", "apps/client/src-tauri/gen/android/keystore.properties",
+  "my.svault", "my.svbak", "my.svmig", "vault.sqlite", "vault.sqlite-wal", "vault.db", "run.log", "crash.dmp",
+];
+const r = git(["check-ignore", "--no-index", "--stdin"], mustIgnore.join("\n"));
+if (r.error || r.status > 1) {
+  console.error("git check-ignore 无法运行");
+  process.exit(1);
+}
+const ignored = new Set(r.stdout.split("\n").filter(Boolean));
+const missing = mustIgnore.filter((p) => !ignored.has(p));
+
+// 已跟踪或待加入的文件里，不应有被忽略规则覆盖的文件
+const tracked = git(["ls-files", "-ci", "--exclude-standard"]).stdout.split("\n").filter(Boolean);
+
+// 私钥内容特征：拼接书写，避免本文件命中自己
+const marker = `-----BEGIN .*PRIVATE ${"KEY"}-----`;
+const hit = git(["grep", "-lE", "--untracked", "-e", marker]).stdout.split("\n").filter(Boolean);
+
+for (const p of missing) console.error(`.gitignore 未覆盖：${p}`);
+for (const p of tracked) console.error(`应忽略却已被跟踪：${p}`);
+for (const p of hit) console.error(`文件疑似含私钥：${p}`);
+if (missing.length || tracked.length || hit.length) process.exit(1);
+console.log(`已检查 ${mustIgnore.length} 条忽略规则，无敏感文件入库。`);

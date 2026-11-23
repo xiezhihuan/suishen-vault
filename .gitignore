@@ -1,0 +1,53 @@
+# 构建产物
+target/
+node_modules/
+dist/
+*.tsbuildinfo
+apps/client/src-tauri/gen/schemas/
+apps/client/src-tauri/gen/android/.gradle/
+apps/client/src-tauri/gen/android/**/build/
+apps/client/src-tauri/gen/android/local.properties
+
+# 密钥、签名文件、环境变量
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.cer
+*.crt
+*.jks
+*.keystore
+*.mobileprovision
+*.provisionprofile
+keystore.properties
+key.properties
+google-services.json
+secrets/
+
+# 密库数据、备份、迁移包（任何真实数据都不得入库）
+*.svault
+*.svbak
+*.svmig
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+
+# 日志与崩溃转储
+*.log
+*.dmp
+*.ips
+core.*
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/settings.local.json
