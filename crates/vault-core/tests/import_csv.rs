@@ -52,6 +52,14 @@ fn chrome() {
 }
 
 #[test]
+fn whitespace_only_password_survives_import() {
+    let (_env, vault, report) = run(b"name,url,username,password\n,,,\t\n");
+    assert_eq!((report.imported, report.blank), (1, 0));
+    let id = vault.list(ListFilter::Active).unwrap()[0].id;
+    assert!(vault.get(id).unwrap().secrets.password.unwrap().ct_eq("\t"));
+}
+
+#[test]
 fn bitwarden() {
     let csv = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n\
         工作,1,login,代码托管,假备注,\"问题: 答案\n无冒号\",0,\"https://a.example.test,https://b.example.test/x,y\",fakeuser01,Fake-Pw-1,GEZDGNBVGY3TQOJQ\n\
@@ -246,7 +254,7 @@ fn arbitrary_rows_are_never_silently_lost() {
             let mut want: Vec<String> = rows
                 .iter()
                 .map(|r| r.3.clone())
-                .filter(|p| !p.trim().is_empty())
+                .filter(|p| !p.is_empty())
                 .collect();
             got.sort();
             want.sort();
