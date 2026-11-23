@@ -21,6 +21,43 @@ pub const SEARCH_MIN_CHARS_LATIN: usize = 3;
 /// 单个客户端同时等待处理的申请数。
 pub const MAX_PENDING_PER_CLIENT: usize = 3;
 
+/// 磁盘格式版本。
+pub const FORMAT_VERSION: u32 = 1;
+
+/// Argon2id 下限（同时是默认值）与上限。
+pub const KDF_MIN_M_KIB: u32 = 64 * 1024;
+pub const KDF_MIN_T: u32 = 3;
+pub const KDF_MIN_P: u32 = 4;
+pub const KDF_MAX_M_KIB: u32 = 1024 * 1024;
+pub const KDF_MAX_T: u32 = 20;
+pub const KDF_MAX_P: u32 = 8;
+
+/// 主密码最少字符数。
+pub const MASTER_PASSWORD_MIN_CHARS: usize = 10;
+/// 前几次解锁失败不等待，避免偶尔输错就被拖慢。
+pub const UNLOCK_FREE_FAILURES: u32 = 2;
+/// 解锁失败等待上限。
+pub const UNLOCK_MAX_DELAY: Duration = Duration::from_secs(300);
+
+/// 回收站保留时间。
+pub const TRASH_RETENTION: Duration = Duration::from_secs(30 * 24 * 3600);
+/// 不透明条目 ID 的有效期。
+pub const ITEM_REF_TTL: Duration = Duration::from_secs(30 * 60);
+/// 每个客户端同时保留的不透明 ID 上限，超出时丢弃最早的。
+pub const ITEM_REF_MAX_PER_CLIENT: usize = 1000;
+/// AI 查询最大长度（字符）。
+pub const SEARCH_MAX_QUERY_CHARS: usize = 100;
+
+pub const MAX_TITLE_CHARS: usize = 200;
+pub const MAX_TAGS: usize = 32;
+pub const MAX_TAG_CHARS: usize = 64;
+pub const MAX_DOMAINS: usize = 16;
+pub const MAX_HINT_CHARS: usize = 1000;
+pub const MAX_SECRET_BYTES: usize = 1024 * 1024;
+pub const MAX_CUSTOM_FIELDS: usize = 64;
+pub const MAX_CSV_BYTES: u64 = 64 * 1024 * 1024;
+pub const MAX_PACKAGE_BYTES: u64 = 1024 * 1024 * 1024;
+
 #[cfg(test)]
 mod tests {
     use super::*;

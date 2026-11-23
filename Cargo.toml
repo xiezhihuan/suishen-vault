@@ -22,6 +22,25 @@ serde_json = "1"
 tauri = { version = "2.12", features = [] }
 tauri-build = { version = "2.7", features = [] }
 
+# vault-core：密码学只用 RustCrypto 与同类成熟库
+argon2 = { version = "0.6", default-features = false, features = ["alloc", "zeroize"] }
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "zeroize"] }
+hkdf = "0.13"
+hmac = { version = "0.13", features = ["zeroize"] }
+sha1 = { version = "0.11", features = ["zeroize"] }
+sha2 = { version = "0.11", features = ["zeroize"] }
+subtle = "2.6"
+zeroize = { version = "1.9", features = ["derive"] }
+getrandom = "0.4"
+rusqlite = { version = "0.43", default-features = false, features = ["bundled", "cache"] }
+unicode-normalization = "0.1"
+pinyin = { version = "0.11", default-features = false, features = ["plain", "heteronym"] }
+csv-core = "0.1"
+url = "2.5"
+thiserror = "2"
+proptest = { version = "1.12", default-features = false, features = ["std"] }
+tempfile = "3"
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 
@@ -34,6 +53,18 @@ print_stderr = "deny"
 [profile.dev]
 # 控制磁盘占用：本机可用空间约 20GB
 debug = "line-tables-only"
+
+# Argon2id 的安全下限固定为 64 MiB、3 次，测试不降参数，所以只优化密码学依赖
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.poly1305]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
 
 [profile.release]
 strip = true

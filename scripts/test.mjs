@@ -18,6 +18,7 @@ const steps = [
   ["Rust 格式", "cargo", ["fmt", "--all", "--check"]],
   ["Rust 静态检查", "cargo", ["clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"]],
   ["Rust 测试", "cargo", ["test", "--workspace", "--locked"]],
+  ["万条密库检索", "cargo", ["test", "--release", "-p", "vault-core", "--test", "perf", "--locked", "--", "--nocapture"]],
   ["桌面壳编译", "cargo", ["build", "-p", "suishen-vault-client", "--locked"]],
 ];
 

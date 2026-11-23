@@ -9,7 +9,24 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+argon2.workspace = true
+chacha20poly1305.workspace = true
+csv-core.workspace = true
+getrandom.workspace = true
+hkdf.workspace = true
+hmac.workspace = true
+pinyin.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true
+unicode-normalization.workspace = true
+url.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
+proptest.workspace = true
