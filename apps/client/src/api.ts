@@ -45,6 +45,9 @@ export interface Pairing {
 export interface Status {
   version: string;
   platform: string;
+  biometric?: boolean;
+  documents?: string[];
+  package_kind?: string;
   phase: Phase;
   scope: Scope;
   remaining: number | null;

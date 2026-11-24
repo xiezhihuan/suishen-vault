@@ -20,11 +20,11 @@ export function Requests({ status, refresh, issued, setIssued }: {
   // 出码后重新打开窗口时没有码可看，但仍可撤销
   const orphan = status.requests.filter((r) => r.state === "code_issued" && !issued.some((i) => i.id === r.request_id));
   return (
-    <Page title="授权申请" note="AI 想看某一条时会出现在这里。每次批准都要重新输入主密码。">
+    <Page title="授权申请" note="AI 想看某一条时会出现在这里。每次批准都要重新验证身份。">
       {issued.map((i) => <CodePanel key={i.id} item={i} onClose={() => setIssued((all) => all.filter((x) => x.id !== i.id))} />)}
       {viewed && <ViewPanel data={viewed} onClose={() => setViewed(null)} />}
       {pending.map((r) => (
-        <Approval key={r.request_id} request={r} refresh={refresh}
+        <Approval biometric={status.biometric} key={r.request_id} request={r} refresh={refresh}
           onCode={(code) => setIssued((all) => [...all, { id: r.request_id, title: r.title, client: r.client, code, until: Date.now() + 120_000 }])}
           onView={(rows) => setViewed({ title: r.title, rows })} />
       ))}
@@ -36,9 +36,11 @@ export function Requests({ status, refresh, issued, setIssued }: {
   );
 }
 
-export function Approval({ request: r, refresh, onCode, onView }: {
-  request: Request; refresh: () => Promise<void>; onCode: (code: string) => void; onView: (rows: Viewed["rows"]) => void;
+export function Approval({ request: r, biometric, refresh, onCode, onView }: {
+  request: Request; biometric?: boolean; refresh: () => Promise<void>; onCode: (code: string) => void; onView: (rows: Viewed["rows"]) => void;
 }) {
+  const [useBio, setUseBio] = useState(false);
+  const bio = biometric && useBio;
   const [ready, setReady] = useState(false);
   const [fields, setFields] = useState<AiField[]>(r.fields);
   const { busy, error, setError, run } = useAction();
@@ -55,10 +57,12 @@ export function Approval({ request: r, refresh, onCode, onView }: {
     const input = password.current?.querySelector("input");
     const pw = action === "deny" ? "" : input?.value ?? "";
     if (input) input.value = "";
-    if (action !== "deny" && !pw) { setError({ code: "empty", message: "请先输入主密码" }); input?.focus(); return; }
+    if (action !== "deny" && !bio && !pw) { setError({ code: "empty", message: "请先输入主密码" }); input?.focus(); return; }
     if (action !== "deny" && !fields.length) { setError({ code: "fields", message: "请至少勾选一个字段" }); return; }
     void run(async () => {
-      const out = await call<string | null>("decide", { id: r.request_id, action, fields: action === "deny" ? [] : fields, password: pw });
+      const out = bio && action !== "deny"
+        ? await call<string | null>("biometric", { operation: { use: "approve", id: r.request_id, fields, for_ai: action === "issue" } })
+        : await call<string | null>("decide", { id: r.request_id, action, fields: action === "deny" ? [] : fields, password: pw });
       if (action === "issue" && out) onCode(out);
       if (action === "view" && out) onView(parseView(out));
       await refresh();
@@ -84,7 +88,8 @@ export function Approval({ request: r, refresh, onCode, onView }: {
           ))}
           </div>
         </fieldset>
-        <div ref={password}><PasswordField label="主密码（批准时需要）" name="password" /></div>
+        {biometric && <label className="check"><input type="checkbox" checked={useBio} onChange={e => setUseBio(e.target.checked)} />用生物识别批准这一次</label>}
+        {!bio && <div ref={password}><PasswordField label="主密码（批准时需要）" name="password" /></div>}
         <ErrorText error={error} />
         <p className="warn-text">选「交给 AI」后，勾选字段的明文会进入 AI 服务商的上下文，也可能留在聊天记录里。</p>
         {r.access === "direct" && <p className="warn-text">这个客户端允许公网直连：如果它正走直连，跳板那台服务器也能看到授权码和交出的明文。</p>}

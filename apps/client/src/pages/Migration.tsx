@@ -3,10 +3,12 @@ import { call, type Status } from "../api";
 import { stamp, useAction } from "../hooks";
 import { Card, Confirm, ErrorText, Page, PasswordField, takeForm, text } from "../ui";
 
+import { DocumentPicker } from "./DocumentPicker";
+
 export function Migration({ status, refresh, code, setCode }: { status: Status; refresh: () => Promise<void>; code: string; setCode: (c: string) => void }) {
   return (
     <Page title="设备迁移" note="同一时间只用一台主设备。换设备时把整个密库搬过去，这台随后停用。">
-      {status.migrating ? <InProgress refresh={refresh} code={code} setCode={setCode} /> : <Begin refresh={refresh} setCode={setCode} />}
+      {status.migrating ? <InProgress refresh={refresh} code={code} setCode={setCode} /> : <Begin status={status} refresh={refresh} setCode={setCode} />}
       <Card title="做不到的事">
         <p>没有中心服务器，应用无法阻止有人手工复制备份、迁移包（连同迁移码）或密库文件到另一台设备同时使用，也无法让已复制出去的副本失效。</p>
       </Card>
@@ -14,7 +16,7 @@ export function Migration({ status, refresh, code, setCode }: { status: Status; 
   );
 }
 
-function Begin({ refresh, setCode }: { refresh: () => Promise<void>; setCode: (c: string) => void }) {
+function Begin({ status, refresh, setCode }: { status: Status; refresh: () => Promise<void>; setCode: (c: string) => void }) {
   const { busy, error, run } = useAction();
   return (
     <Card title="迁移到新设备">
@@ -32,9 +34,10 @@ function Begin({ refresh, setCode }: { refresh: () => Promise<void>; setCode: (c
           await refresh();
         });
       }}>
+        <DocumentPicker status={status} kind="migration" />
         <PasswordField label="主密码" name="password" />
         <ErrorText error={error} />
-        <div className="actions"><button className="primary" disabled={busy}>{busy ? "正在生成…" : "生成迁移包…"}</button></div>
+        <div className="actions"><button className="primary" disabled={busy || (status.platform === "android" && !status.documents?.includes("migration"))}>{busy ? "正在生成…" : "生成迁移包…"}</button></div>
       </form>
     </Card>
   );

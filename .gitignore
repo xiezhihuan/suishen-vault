@@ -56,3 +56,5 @@ apps/client/src-tauri/binaries/
 
 # 跳板可执行文件的导出目录
 /out/
+# Android 工程由锁定版本的 Tauri CLI 与 apps/client/android 生成
+/apps/client/src-tauri/gen/android/

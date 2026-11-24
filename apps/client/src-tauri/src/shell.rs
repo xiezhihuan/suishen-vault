@@ -4,10 +4,13 @@ use std::time::Duration;
 use tauri::{
     AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, webview::NewWindowResponse,
 };
+#[cfg(desktop)]
 use tauri_plugin_notification::NotificationExt;
 
 /// 通知文案固定，不含客户端、条目、理由。AC-GRT-16
+#[cfg(any(test, not(target_os = "android")))]
 const NOTICE_TITLE: &str = "随身密库";
+#[cfg(any(test, not(target_os = "android")))]
 const NOTICE_BODY: &str = "有新的授权申请，请打开应用核对";
 
 pub fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
@@ -24,7 +27,7 @@ pub fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .on_navigation(allowed)
         .on_new_window(|_, _| NewWindowResponse::Deny);
     // 仅调试构建可放开截屏，供自动验收界面使用
-    if cfg!(debug_assertions) && std::env::var_os("SUISHEN_ALLOW_CAPTURE").is_some() {
+    if cfg!(all(desktop, debug_assertions)) && std::env::var_os("SUISHEN_ALLOW_CAPTURE").is_some() {
         window = window.content_protected(false);
     }
     debug_assert!(matches!(config.url, WebviewUrl::App(_)));
@@ -42,6 +45,7 @@ fn allowed(url: &tauri::Url) -> bool {
     }
 }
 
+#[cfg(desktop)]
 pub fn show(app: &AppHandle, target: Option<&'static str>) {
     if let Some(t) = target {
         app.state::<AppState>().navigate(t);
@@ -140,6 +144,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(desktop)]
 fn notify(app: &AppHandle) {
     let _ = app
         .notification()
@@ -159,6 +164,7 @@ pub fn dismiss_entry_assistant(app: &AppHandle) {
 pub fn start_heartbeat(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
+        #[cfg(desktop)]
         let mut shown = None;
         loop {
             std::thread::sleep(Duration::from_secs(1));
@@ -169,9 +175,16 @@ pub fn start_heartbeat(app: &AppHandle) {
                 dismiss_entry_assistant(&app);
             }
             if tick.new_request && state.settings().notify {
+                #[cfg(desktop)]
                 notify(&app);
+                #[cfg(target_os = "android")]
+                let _ = crate::android::call::<()>("requestNotice", ());
             }
+            #[cfg(target_os = "android")]
+            crate::android::heartbeat(&state);
+            #[cfg(desktop)]
             let scope = state.service.scope();
+            #[cfg(desktop)]
             if shown != Some(scope) {
                 shown = Some(scope);
                 #[cfg(desktop)]

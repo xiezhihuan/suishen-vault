@@ -16,9 +16,8 @@ workspace = true
 tauri-build.workspace = true
 
 [dependencies]
-tauri = { workspace = true, features = ["tray-icon"] }
+tauri.workspace = true
 tauri-plugin-dialog = "2"
-tauri-plugin-notification = "2"
 serde.workspace = true
 serde_json.workspace = true
 vault-core.workspace = true
@@ -27,8 +26,14 @@ zeroize.workspace = true
 hex = "0.4"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri = { workspace = true, features = ["tray-icon"] }
+tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
 arboard = { version = "3.6", default-features = false }
+
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-fs = "2"
+tempfile.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard"] }

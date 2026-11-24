@@ -1,6 +1,10 @@
 //! 随身密库 App 壳。规则在 `state`，系统集成在 `shell`，命令在 `commands`。
+#[cfg(target_os = "android")]
+mod android;
 mod clipboard;
 mod commands;
+#[cfg(target_os = "android")]
+mod documents;
 mod error;
 mod mcp_config;
 mod screen;
@@ -10,7 +14,9 @@ mod state;
 
 use state::AppState;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+#[cfg(desktop)]
+use tauri::WindowEvent;
+use tauri::{AppHandle, Manager, RunEvent};
 
 /// 密库目录，仅本用户可访问。
 fn data_dir(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -19,6 +25,8 @@ fn data_dir(app: &AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
         Some(d) => PathBuf::from(d),
         None => app.path().app_data_dir()?,
     };
+    #[cfg(target_os = "android")]
+    let dir = dir.join("no_backup").join("vault");
     std::fs::create_dir_all(&dir)?;
     #[cfg(unix)]
     {
@@ -49,83 +57,101 @@ pub fn run() {
     // panic 正文可能带值，一律丢弃。AC-LOG-02
     std::panic::set_hook(Box::new(|_| {}));
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "android")]
+    let builder = builder
+        .plugin(android::plugin())
+        .plugin(tauri_plugin_fs::init());
     #[cfg(windows)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         shell::show(app, None);
     }));
     #[cfg(desktop)]
     let builder = builder.plugin(shell::shortcut_plugin());
-    builder
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_notification::init());
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        .setup(|app| setup(app.handle()))
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                let state = window.state::<AppState>();
-                if state.settings().hide_to_tray {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+        .setup(|app| setup(app.handle()));
+    #[cfg(desktop)]
+    let builder = builder.on_window_event(|window, event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            let state = window.state::<AppState>();
+            if state.settings().hide_to_tray {
+                api.prevent_close();
+                let _ = window.hide();
             }
-        })
-        .invoke_handler(tauri::generate_handler![
-            commands::poll,
-            commands::touch,
-            commands::setup_begin,
-            commands::setup_confirm,
-            commands::cancel_flow,
-            commands::unlock,
-            commands::lock,
-            commands::recovery_begin,
-            commands::recovery_reissue,
-            commands::recovery_confirm,
-            commands::change_password,
-            commands::list_items,
-            commands::get_item,
-            commands::reveal_field,
-            commands::copy_field,
-            commands::copy_text,
-            commands::save_item,
-            commands::parse_paste,
-            commands::pasteboard_stamp,
-            commands::save_paste,
-            commands::draft_permission,
-            commands::draft_inbox,
-            commands::accept_draft,
-            commands::reject_drafts,
-            commands::item_action,
-            commands::empty_trash,
-            commands::totp_code,
-            commands::generate,
-            commands::open_service,
-            commands::close_service,
-            commands::relay_claim,
-            commands::relay_forget,
-            commands::pairing_begin,
-            commands::pairing_accept,
-            commands::pairing_cancel,
-            commands::list_clients,
-            commands::add_client,
-            commands::rename_client,
-            commands::revoke_client,
-            commands::resume_client,
-            commands::decide,
-            commands::request_state,
-            commands::audit,
-            commands::mcp_config,
-            commands::import_csv,
-            commands::delete_csv,
-            commands::export_backup,
-            commands::pick_package,
-            commands::restore_backup,
-            commands::migration_import,
-            commands::migration_begin,
-            commands::migration_cancel,
-            commands::migration_confirm,
-            commands::wipe_retired,
-            commands::set_aside,
-            commands::set_settings,
-        ])
+        }
+    });
+    let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+        commands::poll,
+        commands::touch,
+        commands::setup_begin,
+        commands::setup_confirm,
+        commands::cancel_flow,
+        commands::unlock,
+        commands::biometric,
+        commands::lock,
+        commands::recovery_begin,
+        commands::recovery_reissue,
+        commands::recovery_confirm,
+        commands::change_password,
+        commands::list_items,
+        commands::get_item,
+        commands::reveal_field,
+        commands::copy_field,
+        commands::copy_text,
+        commands::save_item,
+        commands::parse_paste,
+        commands::pasteboard_stamp,
+        commands::save_paste,
+        commands::draft_permission,
+        commands::draft_inbox,
+        commands::accept_draft,
+        commands::reject_drafts,
+        commands::item_action,
+        commands::empty_trash,
+        commands::totp_code,
+        commands::generate,
+        commands::open_service,
+        commands::close_service,
+        commands::relay_claim,
+        commands::relay_forget,
+        commands::pairing_begin,
+        commands::pairing_accept,
+        commands::pairing_cancel,
+        commands::list_clients,
+        commands::add_client,
+        commands::rename_client,
+        commands::revoke_client,
+        commands::resume_client,
+        commands::decide,
+        commands::request_state,
+        commands::audit,
+        commands::mcp_config,
+        commands::select_document,
+        commands::import_csv,
+        commands::delete_csv,
+        commands::export_backup,
+        commands::pick_package,
+        commands::restore_backup,
+        commands::migration_import,
+        commands::migration_begin,
+        commands::migration_cancel,
+        commands::migration_confirm,
+        commands::wipe_retired,
+        commands::set_aside,
+        commands::set_settings,
+    ];
+    #[cfg(target_os = "android")]
+    let handler = move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+        if let Err(error) = android::visible() {
+            invoke.resolver.reject(error);
+            return true;
+        }
+        handler(invoke)
+    };
+    builder
+        .invoke_handler(handler)
         .build(tauri::generate_context!())
         .expect("Tauri 启动失败")
         .run(|app, event| match event {

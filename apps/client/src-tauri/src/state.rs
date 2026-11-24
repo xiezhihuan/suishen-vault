@@ -144,6 +144,8 @@ struct Flow {
     recovery: Option<PendingRecovery>,
     import: Option<ImportReport>,
     package: Option<PathBuf>,
+    #[cfg(target_os = "android")]
+    package_kind: Option<String>,
 }
 
 struct Clocked {
@@ -261,6 +263,8 @@ impl AppState {
     /// 只在完全解锁时执行。
     pub(crate) fn unlocked<T>(&self, f: impl FnOnce(&mut Engine) -> Ui<T>) -> Ui<T> {
         self.engine(|e| {
+            #[cfg(target_os = "android")]
+            crate::android::visible()?;
             if e.vault().lock_state() != LockState::Unlocked {
                 return Err(UiError::locked());
             }
@@ -289,9 +293,15 @@ impl AppState {
             "nav": &*hold(&self.nav),
             "data_dir": self.dir.to_string_lossy(),
         });
+        #[cfg(target_os = "android")]
+        {
+            out["documents"] = json!(crate::documents::selected());
+            out["package_kind"] = json!(hold(&self.flow).package_kind);
+        }
         let phase = match self.shared() {
             Ok(shared) => {
                 let mut e = hold(&shared);
+                out["biometric"] = json!(cfg!(target_os = "android") && e.vault().has_device_key());
                 out["requests"] = e.pending();
                 out["relay"] = e.relay_info();
                 out["pairing"] = e.pairing_info();
@@ -428,7 +438,10 @@ impl AppState {
         let setup = Setup::begin(password)?;
         let out =
             json!({"recovery_key": setup.recovery_key().expose(), "challenge": setup.challenge()});
-        hold(&self.flow).setup = Some(setup);
+        let mut flow = hold(&self.flow);
+        #[cfg(target_os = "android")]
+        crate::android::visible()?;
+        flow.setup = Some(setup);
         Ok(out)
     }
 
@@ -437,6 +450,8 @@ impl AppState {
         self.require_empty()?;
         let answers = pair(answers)?;
         let mut flow = hold(&self.flow);
+        #[cfg(target_os = "android")]
+        crate::android::visible()?;
         let setup = flow
             .setup
             .take()
@@ -457,18 +472,26 @@ impl AppState {
     }
 
     pub fn unlock(&self, password: &SecretString) -> Ui<()> {
-        self.engine(|e| Ok(e.unlock(Auth::Password(password))?))?;
+        self.unlock_with(Auth::Password(password))
+    }
+
+    pub(crate) fn unlock_with(&self, auth: Auth<'_>) -> Ui<()> {
+        self.engine(|e| {
+            #[cfg(target_os = "android")]
+            crate::android::visible()?;
+            Ok(e.unlock(auth)?)
+        })?;
         self.drop_flow();
         self.touch();
         Ok(())
     }
 
     pub fn lock(&self) {
+        self.drop_flow();
         let _ = self.engine(|e| {
             e.lock_ui();
             Ok(())
         });
-        self.drop_flow();
     }
 
     fn keep_recovery(&self, p: PendingRecovery) -> Value {
@@ -772,12 +795,24 @@ impl AppState {
         action: Decision,
         password: &SecretString,
     ) -> Ui<Option<String>> {
+        self.decide_with(id, fields, action, Auth::Password(password))
+    }
+
+    pub(crate) fn decide_with(
+        &self,
+        id: &str,
+        fields: Vec<AiField>,
+        action: Decision,
+        auth: Auth<'_>,
+    ) -> Ui<Option<String>> {
         self.engine(|e| match action {
             Decision::Deny => Ok(e.deny(id).map(|()| None)?),
             Decision::Revoke => Ok(e.revoke(id).map(|()| None)?),
             Decision::View | Decision::Issue => {
                 let for_ai = action == Decision::Issue;
-                match e.approve(id, fields, Auth::Password(password), for_ai)? {
+                #[cfg(target_os = "android")]
+                crate::android::visible()?;
+                match e.approve(id, fields, auth, for_ai)? {
                     LocalApproval::Code(c) => Ok(Some(c.expose().to_owned())),
                     LocalApproval::View(v) => std::str::from_utf8(&v)
                         .map(|s| Some(s.to_owned()))
@@ -839,6 +874,13 @@ impl AppState {
             .unwrap_or_default();
         hold(&self.flow).package = Some(path);
         name
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn selected_package(&self, path: PathBuf, kind: &str) {
+        let mut flow = hold(&self.flow);
+        flow.package = Some(path);
+        flow.package_kind = Some(kind.to_owned());
     }
 
     fn package(&self) -> Ui<PathBuf> {
@@ -985,7 +1027,7 @@ fn meta_json(m: &ItemMeta) -> Value {
     })
 }
 
-fn report_json(r: &ImportReport) -> Value {
+pub(crate) fn report_json(r: &ImportReport) -> Value {
     let format = match r.format {
         CsvFormat::Chrome => "Chrome",
         CsvFormat::Bitwarden => "Bitwarden",

@@ -8,6 +8,7 @@ use vault_core::SecretString;
 struct Mark(u64);
 
 pub struct Copied {
+    #[cfg(not(target_os = "android"))]
     mark: Mark,
     since: Instant,
     wall: SystemTime,
@@ -21,6 +22,7 @@ impl Copied {
     }
     /// 仍是本次内容才清除。
     pub fn clear(self) {
+        #[cfg(not(target_os = "android"))]
         if imp::mark() == self.mark {
             imp::clear();
         }
@@ -28,8 +30,15 @@ impl Copied {
 }
 
 pub fn copy(text: &SecretString, ttl: Duration) -> Ui<Copied> {
+    #[cfg(target_os = "android")]
+    crate::android::call::<()>(
+        "copy",
+        serde_json::json!({"text":text.expose(), "ms":ttl.as_millis() as u64}),
+    )?;
+    #[cfg(not(target_os = "android"))]
     imp::set(text.expose()).ok_or_else(|| UiError::new("clipboard", "无法写入剪贴板"))?;
     Ok(Copied {
+        #[cfg(not(target_os = "android"))]
         mark: imp::mark(),
         since: Instant::now(),
         wall: SystemTime::now(),
@@ -99,8 +108,15 @@ mod imp {
     }
 }
 
-// Android 由后续任务用系统剪贴板服务实现，这里明确报错，不假装成功。
-#[cfg(mobile)]
+#[cfg(target_os = "android")]
+mod imp {
+    use super::Mark;
+    pub fn mark() -> Mark {
+        Mark(crate::android::call("clipStamp", ()).unwrap_or(0))
+    }
+}
+
+#[cfg(all(mobile, not(target_os = "android")))]
 mod imp {
     use super::Mark;
     pub fn mark() -> Mark {
@@ -141,7 +157,14 @@ pub fn clear_matching(original: &SecretString, expected: &str) {
             }
         }
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(target_os = "android")]
+    if let Ok(stamp) = expected.parse::<u64>() {
+        let _ = crate::android::call::<()>(
+            "clearMatching",
+            serde_json::json!({"text": original.expose(), "stamp":stamp}),
+        );
+    }
+    #[cfg(not(any(target_os = "macos", windows, target_os = "android")))]
     let _ = (original, expected);
 }
 

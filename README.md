@@ -64,3 +64,5 @@ npm run cargo -- test -p vault-core           # 用统一环境运行任意 carg
 ## 许可证
 
 未授予开源许可，按私有项目处理，是否公开由项目所有者决定。
+
+Android arm64 直装包的环境准备、签名和模拟器验收见 [Android 构建](docs/Android构建.md)。本次工作树未产出 APK。

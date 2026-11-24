@@ -628,3 +628,73 @@ fn public_scope_needs_a_paired_relay_and_moves_to_the_new_device() {
     old.relay_forget().unwrap();
     assert_eq!(old.poll()["relay"], Value::Null);
 }
+
+// 直接测试 Keystore 解密后的 Rust 路径。此测试不模拟或声称执行了系统指纹识别。
+#[test]
+fn device_slot_authorizes_only_the_requested_fields_while_ui_stays_locked() {
+    let f = fixture();
+    let st = &f.state;
+    set_port(st);
+    let device = vault_core::Key::random().unwrap();
+    let other = vault_core::Key::random().unwrap();
+    st.unlocked(|e| Ok(e.vault_mut().enroll_device_key(&s(PW), &device)?))
+        .unwrap();
+    st.save_item(None, login("Orion")).unwrap();
+    st.add_client("假手机验收", vec![], false, &s(PW)).unwrap();
+    let cid = client_id(st.clients().unwrap()[0]["id"].as_str().unwrap()).unwrap();
+    run(st.open_service(OpenScope::Loopback, 15, false)).unwrap();
+    st.lock();
+    let ask = |e: &mut Engine| {
+        let row = e.search(cid, "Orion")?;
+        let item = row["results"][0]["item_ref"].as_str().unwrap();
+        Ok(
+            e.request(cid, item, vec![AiField::Password], "假用途")?["request_id"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        )
+    };
+    let id = st.engine(ask).unwrap();
+    let view = |key| {
+        st.decide_with(
+            &id,
+            vec![AiField::Password],
+            Decision::View,
+            Auth::DeviceKey(key),
+        )
+    };
+    assert!(view(&other).is_err());
+    assert_eq!(st.request_state(&id).unwrap(), "pending");
+    let revealed = view(&device).unwrap().unwrap();
+    assert!(revealed.contains(SECRET) && !revealed.contains(USER));
+    assert_eq!(st.request_state(&id).unwrap(), "view_only");
+    let id = st.engine(ask).unwrap();
+    assert!(
+        st.decide_with(
+            &id,
+            vec![AiField::Username],
+            Decision::Issue,
+            Auth::DeviceKey(&device)
+        )
+        .is_err()
+    );
+    assert!(
+        st.decide_with(
+            &id,
+            vec![AiField::Password],
+            Decision::Issue,
+            Auth::DeviceKey(&device)
+        )
+        .unwrap()
+        .is_some()
+    );
+    assert_eq!(phase(st), "serving");
+    st.service.close();
+    assert_eq!(st.poll()["requests"], json!([]));
+    assert!(st.list(false, "").is_err());
+    st.unlock_with(Auth::DeviceKey(&device)).unwrap();
+    st.unlocked(|e| Ok(e.vault_mut().remove_device_key()?))
+        .unwrap();
+    st.lock();
+    assert!(st.unlock_with(Auth::DeviceKey(&device)).is_err());
+}

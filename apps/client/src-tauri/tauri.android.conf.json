@@ -1,0 +1,21 @@
+{
+  "bundle": {
+    "android": {
+      "minSdkVersion": 29
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "随身密库",
+        "create": false,
+        "contentProtected": true,
+        "useHttpsScheme": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: https://ipc.localhost; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    }
+  }
+}

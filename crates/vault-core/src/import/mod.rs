@@ -108,7 +108,22 @@ impl Vault {
     pub fn import_csv(&mut self, path: &Path, format: Option<CsvFormat>) -> Result<ImportReport> {
         self.writable()?;
         let bytes = fsutil::read_limited(path, policy::MAX_CSV_BYTES)?;
-        let parsed = parse_drafts(&bytes, format)?;
+        let mut report = self.import_csv_bytes(&bytes, format)?;
+        report.source = path.to_owned();
+        Ok(report)
+    }
+
+    /// 从系统文档流导入，不在磁盘上另存一份明文 CSV。
+    pub fn import_csv_bytes(
+        &mut self,
+        bytes: &[u8],
+        format: Option<CsvFormat>,
+    ) -> Result<ImportReport> {
+        self.writable()?;
+        if bytes.len() as u64 > policy::MAX_CSV_BYTES {
+            return Err(Error::TooLarge);
+        }
+        let parsed = parse_drafts(bytes, format)?;
         if !parsed.drafts.is_empty() {
             self.add_many(&parsed.drafts)?;
         }
@@ -118,8 +133,8 @@ impl Vault {
             blank: parsed.blank,
             adjusted: parsed.adjusted,
             rejected: parsed.rejected,
-            source: path.to_owned(),
-            source_digest: sha256(&bytes),
+            source: PathBuf::new(),
+            source_digest: sha256(bytes),
         })
     }
 }

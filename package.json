@@ -14,6 +14,7 @@
     "client:dev": "node scripts/tauri.mjs dev",
     "client:build": "node scripts/tauri.mjs build",
     "package": "node scripts/package.mjs",
-    "test:desktop": "node scripts/cargo.mjs test -p suishen-vault-client --locked -- --ignored"
+    "test:desktop": "node scripts/cargo.mjs test -p suishen-vault-client --locked -- --ignored",
+    "android:build": "node scripts/android-build.mjs"
   }
 }

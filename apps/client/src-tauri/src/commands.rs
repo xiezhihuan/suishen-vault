@@ -8,9 +8,12 @@ use crate::{
 };
 use serde::Deserialize;
 use serde_json::Value;
+#[cfg(not(target_os = "android"))]
 use std::path::PathBuf;
 use tauri::{AppHandle, State};
-use tauri_plugin_dialog::{DialogExt, FilePath};
+use tauri_plugin_dialog::DialogExt;
+#[cfg(not(target_os = "android"))]
+use tauri_plugin_dialog::FilePath;
 use vault_core::{GeneratorOptions, generate_password, model::AiField};
 
 type App<'a> = State<'a, AppState>;
@@ -130,6 +133,9 @@ pub fn generate(options: GeneratorIn) -> Ui<String> {
 
 #[tauri::command]
 pub async fn open_service(app: App<'_>, scope: OpenScope, minutes: u64, direct: bool) -> Ui<()> {
+    #[cfg(target_os = "android")]
+    return crate::android::open(&app, scope, minutes, direct).await;
+    #[cfg(not(target_os = "android"))]
     app.open_service(scope, minutes, direct).await
 }
 #[tauri::command]
@@ -166,6 +172,9 @@ pub fn pairing_cancel(app: App<'_>) -> Ui<()> {
 }
 #[tauri::command(async)]
 pub fn close_service(app: App<'_>) {
+    #[cfg(target_os = "android")]
+    crate::android::close(&app);
+    #[cfg(not(target_os = "android"))]
     app.service.close();
 }
 #[tauri::command(async)]
@@ -220,6 +229,7 @@ pub fn mcp_config(app: App<'_>, client: String, transport: String) -> Ui<Value> 
 
 // ---- 导入、备份、迁移。路径只由系统文件对话框给出，界面不能指定。 ----
 
+#[cfg(not(target_os = "android"))]
 fn chosen(p: Option<FilePath>) -> Option<PathBuf> {
     p.and_then(|p| p.into_path().ok())
 }
@@ -234,15 +244,31 @@ fn file_label(label: &str) -> Ui<&str> {
     }
 }
 
+#[tauri::command(async)]
+pub fn select_document(handle: AppHandle, kind: String, label: String) -> Ui<()> {
+    file_label(&label)?;
+    #[cfg(target_os = "android")]
+    return crate::documents::select(&handle, &kind, &label);
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (handle, kind);
+        fail("platform", "此文件选择方式仅用于 Android")
+    }
+}
+
 /// 界面取消选择时返回 `None`。
 #[tauri::command]
 pub async fn import_csv(handle: AppHandle, app: App<'_>) -> Ui<Option<Value>> {
+    #[cfg(target_os = "android")]
+    return crate::documents::csv(&handle, &app).map(Some);
+    #[cfg(not(target_os = "android"))]
     let pick = handle
         .dialog()
         .file()
         .set_title("选择要导入的 CSV")
         .add_filter("CSV", &["csv"])
         .blocking_pick_file();
+    #[cfg(not(target_os = "android"))]
     chosen(pick).map(|p| app.import_csv(&p)).transpose()
 }
 #[tauri::command(async)]
@@ -251,13 +277,19 @@ pub fn delete_csv(app: App<'_>) -> Ui<()> {
 }
 #[tauri::command]
 pub async fn export_backup(handle: AppHandle, app: App<'_>, label: String) -> Ui<bool> {
+    file_label(&label)?;
+    #[cfg(target_os = "android")]
+    return crate::documents::export(&handle, "backup", |p| app.export_backup(p)).map(|()| true);
+    #[cfg(not(target_os = "android"))]
     let name = format!("随身密库-备份-{}.svbak", file_label(&label)?);
+    #[cfg(not(target_os = "android"))]
     let dest = handle
         .dialog()
         .file()
         .set_title("保存加密备份")
         .set_file_name(name)
         .blocking_save_file();
+    #[cfg(not(target_os = "android"))]
     match chosen(dest) {
         Some(p) => app.export_backup(&p).map(|()| true),
         None => Ok(false),
@@ -276,6 +308,11 @@ pub async fn pick_package(handle: AppHandle, app: App<'_>, kind: String) -> Ui<O
         .set_title(title)
         .add_filter(name, &[ext])
         .blocking_pick_file();
+    #[cfg(target_os = "android")]
+    return pick
+        .map(|p| crate::documents::stage_package(&handle, &app, p, name))
+        .transpose();
+    #[cfg(not(target_os = "android"))]
     Ok(chosen(pick).map(|p| app.set_package(p)))
 }
 #[tauri::command(async)]
@@ -293,13 +330,22 @@ pub async fn migration_begin(
     password: Secret,
     label: String,
 ) -> Ui<Option<String>> {
+    file_label(&label)?;
+    #[cfg(target_os = "android")]
+    return crate::documents::export(&handle, "migration", |p| {
+        app.migration_begin(&password.0, p)
+    })
+    .map(Some);
+    #[cfg(not(target_os = "android"))]
     let name = format!("随身密库-迁移-{}.svmig", file_label(&label)?);
+    #[cfg(not(target_os = "android"))]
     let dest = handle
         .dialog()
         .file()
         .set_title("保存迁移包")
         .set_file_name(name)
         .blocking_save_file();
+    #[cfg(not(target_os = "android"))]
     match chosen(dest) {
         Some(p) => app.migration_begin(&password.0, &p).map(Some),
         None => Ok(None),
@@ -427,4 +473,62 @@ pub fn reject_drafts(app: App<'_>, id: Option<String>) -> Ui<()> {
         Ok(e.vault()
             .reject_drafts(id.as_deref().map(crate::state::item_id).transpose()?)?)
     })
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+#[serde(tag = "use", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Biometric {
+    Enroll {
+        password: Secret,
+    },
+    Remove,
+    Unlock,
+    Approve {
+        id: String,
+        fields: Vec<AiField>,
+        for_ai: bool,
+    },
+}
+
+#[tauri::command(async)]
+pub fn biometric(app: App<'_>, operation: Biometric) -> Ui<Option<String>> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, operation);
+        fail("platform", "这台设备没有启用生物识别")
+    }
+    #[cfg(target_os = "android")]
+    {
+        use crate::android;
+        use vault_core::Auth;
+        match operation {
+            Biometric::Enroll { password } => {
+                app.unlocked(|e| Ok(e.vault_mut().reauthenticate(Auth::Password(&password.0))?))?;
+                let key = android::authenticate(true)?;
+                app.unlocked(|e| Ok(e.vault_mut().enroll_device_key(&password.0, &key)?))?;
+            }
+            Biometric::Remove => {
+                app.unlocked(|e| Ok(e.vault_mut().remove_device_key()?))?;
+                android::call::<()>("forgetKey", ())?;
+            }
+            Biometric::Unlock => {
+                app.unlock_with(Auth::DeviceKey(&android::authenticate(false)?))?
+            }
+            Biometric::Approve { id, fields, for_ai } => {
+                let action = if for_ai {
+                    Decision::Issue
+                } else {
+                    Decision::View
+                };
+                return app.decide_with(
+                    &id,
+                    fields,
+                    action,
+                    Auth::DeviceKey(&android::authenticate(false)?),
+                );
+            }
+        }
+        Ok(None)
+    }
 }

@@ -6,6 +6,7 @@ const COMMANDS: &[&str] = &[
     "setup_confirm",
     "cancel_flow",
     "unlock",
+    "biometric",
     "lock",
     "recovery_begin",
     "recovery_reissue",
@@ -44,6 +45,7 @@ const COMMANDS: &[&str] = &[
     "request_state",
     "audit",
     "mcp_config",
+    "select_document",
     "import_csv",
     "delete_csv",
     "export_backup",
@@ -59,6 +61,16 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android") {
+        // 拒绝仅有默认 Tauri 清单（允许备份、没有前台服务）的裸工程。
+        let manifest = "gen/android/app/src/main/AndroidManifest.xml";
+        println!("cargo:rerun-if-changed={manifest}");
+        assert!(
+            std::fs::read(manifest)
+                .is_ok_and(|bytes| bytes == include_bytes!("../android/AndroidManifest.xml")),
+            "请从仓库根目录运行 npm run android:build 安装本项目的 Android 清单"
+        );
+    }
     let manifest = tauri_build::AppManifest::new().commands(COMMANDS);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("tauri-build 失败");

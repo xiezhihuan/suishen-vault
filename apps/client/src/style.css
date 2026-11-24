@@ -187,3 +187,12 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
 .full-domain { display:block; font:600 1.25rem monospace; unicode-bidi:isolate; }
 .draft-data dd { margin:0 0 .5rem; }
 @media(max-width:650px){ .paste-columns { grid-template-columns:1fr; } }
+
+@media (max-width: 760px) {
+  nav { display: flex; flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+  nav button { flex: none; min-height: 48px; padding-inline: .85rem; font-size: .92rem; }
+  .check, .topbar button, .actions button { min-height: 44px; }
+  .approval .checks { flex-wrap: wrap; gap: .25rem 1rem; }
+  .approval dd { margin-inline-start: 0; }
+  .dialog { max-height: 90dvh; overflow-y: auto; }
+}

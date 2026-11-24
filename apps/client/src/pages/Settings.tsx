@@ -9,10 +9,10 @@ export function Settings({ status, refresh }: { status: Status; refresh: () => P
       <General status={status} refresh={refresh} />
       <ChangePassword disabled={status.migrating} />
       <Reissue disabled={status.migrating} />
-      <Card title="生物识别">
+      {status.platform === "android" ? <AndroidBiometric status={status} refresh={refresh} /> : <Card title="生物识别">
         <p>没有启用。只有系统能用 Touch ID 或 Windows Hello 真正保护解锁密钥时，才会提供这个选项；当前是未签名的应用，macOS 不允许它使用这种存储。</p>
         <p className="muted">不提供只在界面上判断一下的假保护。请用主密码解锁。</p>
-      </Card>
+      </Card>}
       <Card title="关于">
         <p>随身密库 {status.version}。密库只保存在这台设备：</p>
         <pre>{status.data_dir}</pre>
@@ -40,11 +40,11 @@ function General({ status, refresh }: { status: Status; refresh: () => Promise<v
       }}>
         {select("多久没有操作就锁定", draft.auto_lock_minutes, [1, 2, 5, 10, 15, 30, 60], "分钟", (n) => set({ auto_lock_minutes: n }))}
         {select("复制后多久清除剪贴板", draft.clipboard_seconds, [15, 30, 60, 120], "秒", (n) => set({ clipboard_seconds: n }))}
-        <TextField label="呼出搜索的全局快捷键" value={draft.shortcut} onChange={(v) => set({ shortcut: v })} maxLength={64}
-          hint="例如 CmdOrCtrl+Alt+K。留空则不使用。" mono />
+        {status.platform !== "android" && <TextField label="呼出搜索的全局快捷键" value={draft.shortcut} onChange={(v) => set({ shortcut: v })} maxLength={64}
+          hint="例如 CmdOrCtrl+Alt+K。留空则不使用。" mono />}
         <TextField label="服务端口" value={String(draft.port)} onChange={(v) => set({ port: Number(v.replace(/\D/g, "").slice(0, 5)) })} mono
           hint={status.scope === "closed" ? undefined : "先关闭服务才能修改。"} />
-        <Check label="关闭窗口后留在托盘" hint="关掉后，关窗口即退出并关闭服务" checked={draft.hide_to_tray} onChange={(v) => set({ hide_to_tray: v })} />
+        {status.platform !== "android" && <Check label="关闭窗口后留在托盘" hint="关掉后，关窗口即退出并关闭服务" checked={draft.hide_to_tray} onChange={(v) => set({ hide_to_tray: v })} />}
         <Check label="有申请时系统通知" hint="通知里不含条目、客户端和理由" checked={draft.notify} onChange={(v) => set({ notify: v })} />
         <p className="muted">系统锁屏或休眠时总会锁定。</p>
         <ErrorText error={error} />
@@ -99,4 +99,26 @@ function Reissue({ disabled }: { disabled: boolean }) {
       )}
     </Card>
   );
+}
+
+
+function AndroidBiometric({ status, refresh }: { status: Status; refresh: () => Promise<void> }) {
+  const { busy, error, run } = useAction();
+  return <Card title="生物识别">
+    <p>{status.biometric ? "已登记。新增指纹后，请用主密码重新登记。" : "启用后，每次解锁或批准都可以用系统强生物识别验证。"}</p>
+    <form onSubmit={e => {
+      const data = takeForm(e);
+      void run(async () => {
+        await call("biometric", { operation: { use: "enroll", password: text(data, "password") } }); await refresh();
+      });
+    }}>
+      <PasswordField label="确认主密码" name="password" />
+      <ErrorText error={error} />
+      <div className="actions"><button disabled={busy || status.migrating}>{status.biometric ? "重新登记" : "启用生物识别"}</button>
+        {status.biometric && <button type="button" disabled={busy || status.migrating} onClick={() => void run(async () => {
+          await call("biometric", { operation: { use: "remove" } }); await refresh();
+        })}>停用生物识别</button>}
+      </div>
+    </form>
+  </Card>;
 }

@@ -15,8 +15,12 @@ export function Brand({ children }: { children: ReactNode }) {
   );
 }
 
-export function Welcome({ refresh }: { refresh: Refresh }) {
+export function Welcome({ refresh, selected }: { refresh: Refresh; selected?: string }) {
   const [mode, setMode] = useState<"menu" | "new" | "restore" | "migrate">("menu");
+  useEffect(() => {
+    if (selected === "加密备份") setMode("restore");
+    if (selected === "迁移包") setMode("migrate");
+  }, [selected]);
   const back = () => { void call("cancel_flow").catch(() => {}); setMode("menu"); };
   return (
     <Brand>
@@ -32,8 +36,8 @@ export function Welcome({ refresh }: { refresh: Refresh }) {
         </>
       )}
       {mode === "new" && <Setup refresh={refresh} onBack={back} />}
-      {mode === "restore" && <Restore refresh={refresh} onBack={back} />}
-      {mode === "migrate" && <MigrateIn refresh={refresh} onBack={back} />}
+      {mode === "restore" && <Restore refresh={refresh} onBack={back} selected={selected} />}
+      {mode === "migrate" && <MigrateIn refresh={refresh} onBack={back} selected={selected} />}
     </Brand>
   );
 }
@@ -98,8 +102,9 @@ function CredentialFields({ kind, setKind }: { kind: "password" | "recovery"; se
   );
 }
 
-function Restore({ refresh, onBack }: { refresh: Refresh; onBack: () => void }) {
-  const [file, setFile] = useState("");
+function Restore({ refresh, onBack, selected }: { refresh: Refresh; onBack: () => void; selected?: string }) {
+  const [picked, setFile] = useState("");
+  const file = picked || selected || "";
   const [kind, setKind] = useState<"password" | "recovery">("password");
   const { busy, error, run } = useAction();
   return (
@@ -126,8 +131,9 @@ function Restore({ refresh, onBack }: { refresh: Refresh; onBack: () => void }) 
 // 完成码要在刷新后继续显示，所以放在模块外层由 App 保管
 export interface Completion { items: number; completion_code: string }
 
-function MigrateIn({ refresh, onBack }: { refresh: Refresh; onBack: () => void }) {
-  const [file, setFile] = useState("");
+function MigrateIn({ refresh, onBack, selected }: { refresh: Refresh; onBack: () => void; selected?: string }) {
+  const [picked, setFile] = useState("");
+  const file = picked || selected || "";
   const [kind, setKind] = useState<"password" | "recovery">("password");
   const { busy, error, run } = useAction();
   return (
@@ -176,7 +182,11 @@ export function UnlockForm({ status, refresh, autoFocus = true }: { status: Stat
       <PasswordField label="主密码" name="password" autoFocus={autoFocus} />
       <ErrorText error={error} />
       {wait > 0 && <p className="muted" role="status">请等待 {wait} 秒再试</p>}
-      <div className="actions"><button className="primary big" disabled={busy || wait > 0}>{busy ? "正在验证…" : "解锁"}</button></div>
+      <div className="actions"><button className="primary big" disabled={busy || wait > 0}>{busy ? "正在验证…" : "解锁"}</button>
+        {status.biometric && <button type="button" disabled={busy || wait > 0} onClick={() => void run(async () => {
+          await call("biometric", { operation: { use: "unlock" } }); await refresh();
+        })}>用生物识别解锁</button>}
+      </div>
     </form>
   );
 }
@@ -188,7 +198,7 @@ export function Locked({ status, refresh }: { status: Status; refresh: Refresh }
     <Brand>
       <h1>密库已锁定</h1>
       <UnlockForm status={status} refresh={refresh} />
-      <p className="muted">生物识别在这台设备上没有启用，原因见「设置」。</p>
+      {!status.biometric && <p className="muted">可在「设置」查看这台设备的生物识别选项。</p>}
       <button className="link" onClick={() => setForgot(true)}>忘了主密码，用恢复密钥重设</button>
     </Brand>
   );

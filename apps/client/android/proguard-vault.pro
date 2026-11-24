@@ -1,0 +1,2 @@
+-keep class dev.suishen.vault.Native { *; }
+-keep class dev.suishen.vault.VaultPlugin { *; }

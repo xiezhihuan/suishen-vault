@@ -24,6 +24,16 @@ const PAGES = {
 type PageId = keyof typeof PAGES;
 
 export function App() {
+  const [generation, setGeneration] = useState(0);
+  useEffect(() => {
+    const reset = () => setGeneration(n => n + 1);
+    window.addEventListener("suishen:background", reset);
+    return () => window.removeEventListener("suishen:background", reset);
+  }, []);
+  return <VaultApp key={generation} />;
+}
+
+function VaultApp() {
   const { status, failed, refresh } = useStatus();
   useActivity();
   const [page, setPage] = useState<PageId>("items");
@@ -56,7 +66,7 @@ export function App() {
   if (!status) return <main className="start"><p role="status">{failed ? "无法读取应用状态，请重新启动。" : "正在打开…"}</p></main>;
   if (imported) return <ImportDone done={imported} onClose={() => setImported(null)} />;
   switch (status.phase) {
-    case "empty": return <Welcome refresh={refresh} />;
+    case "empty": return <Welcome refresh={refresh} selected={status.package_kind} />;
     case "broken": return <Broken error={status.open_error} refresh={refresh} />;
     case "retired": return <Retired refresh={refresh} />;
     case "locked": return <Locked status={status} refresh={refresh} />;
@@ -86,7 +96,7 @@ export function App() {
           {page === "exposure" && <Exposure status={status} refresh={refresh} />}
           {page === "audit" && <Audit />}
           {page === "generator" && <Generator />}
-          {page === "backup" && <Backup migrating={status.migrating} />}
+          {page === "backup" && <Backup status={status} />}
           {page === "migration" && <Migration status={status} refresh={refresh} code={migrationCode} setCode={setMigrationCode} />}
           {page === "settings" && <Settings status={status} refresh={refresh} />}
         </main>
