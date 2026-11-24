@@ -110,6 +110,7 @@ function Restore({ refresh, onBack }: { refresh: Refresh; onBack: () => void }) 
       <h1>从备份恢复</h1>
       <Card tone="warn">
         <p>恢复后，原来的设备上可能还有一份能用的密库。请在原设备上停用它，不要两边同时改。应用无法阻止有人手工复制备份文件在别处打开。</p>
+        <p>用了公网跳板的，恢复后到「开放范围」用新的配对码接管，原设备的公网身份随即失效。</p>
       </Card>
       <PickPackage kind="backup" label="备份文件（.svbak）" name={file} onPicked={setFile} />
       <CredentialFields kind={kind} setKind={setKind} />
@@ -158,7 +159,7 @@ export function ImportDone({ done, onClose }: { done: Completion; onClose: () =>
       <h1>已导入 {done.items} 条，还差最后一步</h1>
       <p>在<strong>旧设备</strong>的「设备迁移」里输入这个完成码，旧设备就会停用：</p>
       <p className="code" aria-label="完成码">{done.completion_code}</p>
-      <p className="muted">AI 客户端的令牌不会跟着搬过来，需要在这台设备上重新签发。</p>
+      <p className="muted">AI 客户端的令牌不会跟着搬过来，需要在这台设备上重新签发。用了公网跳板的，还要在「开放范围」用新的配对码接管，桥接也要重新配对。</p>
       <div className="actions"><button className="primary big" onClick={onClose}>我已在旧设备输入</button></div>
     </Brand>
   );

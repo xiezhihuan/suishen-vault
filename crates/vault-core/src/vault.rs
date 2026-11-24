@@ -860,6 +860,37 @@ impl Vault {
         Ok(())
     }
 
+    /// 本机的远程访问配置：跳板地址、设备身份。不进备份与迁移包。AC-MIG-05
+    pub fn remote_config(&self) -> Result<Option<Zeroizing<Vec<u8>>>> {
+        use crate::crypto::aead::{self, Aad, Purpose};
+        use rusqlite::OptionalExtension;
+        let key = self.mdk()?;
+        let blob: Option<Vec<u8>> = self
+            .store
+            .service_db()
+            .query_row("SELECT blob FROM remote", [], |r| r.get(0))
+            .optional()?;
+        let aad = Aad::new(Purpose::Remote, &self.header.vault_id);
+        blob.map(|b| aead::open(key, &aad, &b)).transpose()
+    }
+
+    /// `None` 表示清除。
+    pub fn store_remote_config(&self, data: Option<&[u8]>) -> Result<()> {
+        use crate::crypto::aead::{self, Aad, Purpose};
+        self.active()?;
+        let aad = Aad::new(Purpose::Remote, &self.header.vault_id);
+        let key = self.mdk()?;
+        let db = self.store.service_db();
+        match data {
+            Some(d) => db.execute(
+                "INSERT OR REPLACE INTO remote VALUES (1, ?1)",
+                [aead::seal(key, &aad, d)?],
+            )?,
+            None => db.execute("DELETE FROM remote", [])?,
+        };
+        Ok(())
+    }
+
     /// 查询可能夹带密码，记录带密钥的查询指纹，供主设备核对。
     pub fn query_fingerprint(&self, query: &str) -> Result<String> {
         use hmac::{Hmac, KeyInit, Mac};

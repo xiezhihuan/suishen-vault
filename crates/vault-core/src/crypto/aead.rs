@@ -32,6 +32,7 @@ pub(crate) enum Purpose {
     SearchQuota = 9,
     Client = 10,
     Audit = 11,
+    Remote = 12,
 }
 
 /// 带长度前缀的 AAD：每一段都是 `u32 长度 || 内容`，不同分段不会拼出相同字节。

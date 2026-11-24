@@ -126,6 +126,14 @@ impl From<ServiceError> for UiError {
             "invalid_params" => "请检查名称和标签",
             "port_in_use" => "端口已被占用，可在设置里换一个端口",
             "unauthorized" => "这个客户端已不存在",
+            "relay_url" => "跳板地址不正确，例如 https://relay.example.com",
+            "relay_ca" => "证书不正确，请粘贴一张 PEM 格式的 CA 证书，不要含私钥",
+            "relay_code" => "配对码不正确、已过期或已用过，请在服务器上重新生成",
+            "relay_unreachable" => "连不上跳板，请检查地址、网络和证书",
+            "relay_refused" => "对方不是跳板，或跳板的主机名设置与这个地址不一致",
+            "relay_not_set" => "还没有配对跳板",
+            "relay_superseded" => "跳板已由另一台设备接管。要换回这台，请重新生成配对码并配对",
+            "pairing_closed" => "这次配对已结束，请重新开始",
             _ => "操作没有完成，请检查密库和服务状态",
         };
         Self::new(e.1, text)

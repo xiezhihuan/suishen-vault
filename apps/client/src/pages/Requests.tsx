@@ -87,6 +87,7 @@ export function Approval({ request: r, refresh, onCode, onView }: {
         <div ref={password}><PasswordField label="主密码（批准时需要）" name="password" /></div>
         <ErrorText error={error} />
         <p className="warn-text">选「交给 AI」后，勾选字段的明文会进入 AI 服务商的上下文，也可能留在聊天记录里。</p>
+        {r.access === "direct" && <p className="warn-text">这个客户端允许公网直连：如果它正走直连，跳板那台服务器也能看到授权码和交出的明文。</p>}
         <div className="decision">
           <button type="button" ref={deny} className="danger huge" disabled={busy} onClick={() => decide("deny")}>拒绝</button>
           <button type="button" className="huge" disabled={busy || !ready} onClick={() => decide("view")}>

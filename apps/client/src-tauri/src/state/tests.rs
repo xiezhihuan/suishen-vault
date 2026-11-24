@@ -259,16 +259,19 @@ fn service_requests_and_approval() {
     assert_eq!(st.poll()["scope"], "closed");
     st.save_item(None, login("Cassiopeia")).unwrap();
     assert_eq!(
-        code(st.add_client("甲", vec![], &s("fake-wrong-000"))),
+        code(st.add_client("甲", vec![], false, &s("fake-wrong-000"))),
         "unlock_failed"
     );
-    let token = st.add_client("假客户端", vec![], &s(PW)).unwrap();
+    let token = st.add_client("假客户端", vec![], false, &s(PW)).unwrap();
     assert_eq!(token.len(), 64);
     let client = st.clients().unwrap()[0]["id"].as_str().unwrap().to_owned();
     assert!(!st.clients().unwrap().to_string().contains(&token));
 
-    assert_eq!(code(run(st.open_service(7))), "invalid_params");
-    run(st.open_service(15)).unwrap();
+    assert_eq!(
+        code(run(st.open_service(OpenScope::Loopback, 7, false))),
+        "invalid_params"
+    );
+    run(st.open_service(OpenScope::Loopback, 15, false)).unwrap();
     assert_eq!(st.service.scope(), ExposureScope::Loopback);
     let mut moved = st.settings();
     moved.port += 1;
@@ -318,7 +321,10 @@ fn service_requests_and_approval() {
     st.service.close();
     assert_eq!(phase(st), "locked");
     assert_eq!(st.poll()["requests"], json!([]));
-    assert_eq!(code(run(st.open_service(15))), "locked");
+    assert_eq!(
+        code(run(st.open_service(OpenScope::Loopback, 15, false))),
+        "locked"
+    );
 
     st.unlock(&s(PW)).unwrap();
     let log = st.audit("").unwrap();
@@ -370,7 +376,7 @@ fn migration_moves_the_vault_and_retires_the_old_device() {
     let old = &f.state;
     set_port(old);
     old.save_item(None, login("甲")).unwrap();
-    run(old.open_service(15)).unwrap();
+    run(old.open_service(OpenScope::Loopback, 15, false)).unwrap();
     let file = f.dir.path().join("a.svmig");
     assert_eq!(
         code(old.migration_begin(&s(NEW_PW), &file)),
@@ -380,7 +386,10 @@ fn migration_moves_the_vault_and_retires_the_old_device() {
     let mig = old.migration_begin(&s(PW), &file).unwrap();
     assert_eq!(old.poll()["migrating"], true);
     assert_eq!(code(old.save_item(None, login("乙"))), "read_only");
-    assert!(run(old.open_service(15)).is_err(), "迁移中不能开放服务");
+    assert!(
+        run(old.open_service(OpenScope::Loopback, 15, false)).is_err(),
+        "迁移中不能开放服务"
+    );
 
     let dir = tempfile::tempdir().unwrap();
     let new = AppState::new(dir.path().to_owned());
@@ -482,7 +491,7 @@ fn settings_are_checked_and_never_persist_the_scope() {
         ..st.settings()
     })
     .unwrap();
-    run(st.open_service(0)).unwrap();
+    run(st.open_service(OpenScope::Loopback, 0, false)).unwrap();
     let dir = f.dir;
     drop(f.state);
     let st = AppState::new(dir.path().to_owned());
@@ -516,4 +525,106 @@ fn clipboard_is_cleared_only_when_unchanged() {
     st.clear_clipboard();
     assert_eq!(read(), "用户自己的内容");
     arboard::Clipboard::new().unwrap().clear().unwrap();
+}
+
+fn wait(what: &str, f: impl Fn() -> bool) {
+    let start = Instant::now();
+    while !f() {
+        assert!(start.elapsed() < Duration::from_secs(10), "等待{what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// 起一个真实的跳板，返回地址与状态目录。
+fn relay() -> (String, vault_relay::State, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let state = vault_relay::State::new(dir.path());
+    // 主机名要与实际端口一致，所以先占一个空闲端口
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let config = vault_relay::Config::new(port.to_string(), state.clone());
+    let (_, serve) = run(vault_relay::bind(port, config)).unwrap();
+    tauri::async_runtime::spawn(serve);
+    (format!("http://{port}"), state, dir)
+}
+
+// AC-NET-01 AC-REL-02 AC-REL-03 AC-MIG-05
+#[test]
+fn public_scope_needs_a_paired_relay_and_moves_to_the_new_device() {
+    let (url, admin, _relay_dir) = relay();
+    let f = fixture();
+    let old = &f.state;
+    set_port(old);
+    let open = |st: &AppState| run(st.open_service(OpenScope::Public, 60, false));
+    assert_eq!(code(open(old)), "relay_not_set");
+    assert_eq!(code(old.mcp_config("claude", "bridge")), "relay_not_set");
+    assert_eq!(code(old.pairing_begin("甲", vec![], &s(PW))), "settings");
+    let claim =
+        |st: &AppState, code: &str, pw: &str| run(st.relay_claim(&url, None, &s(code), &s(pw)));
+    let fresh = || admin.issue_code().unwrap().display().to_string();
+    assert_eq!(code(claim(old, "short", PW)), "relay_code");
+    assert_eq!(
+        code(claim(old, &fresh(), "fake-wrong-000")),
+        "unlock_failed"
+    );
+    assert_eq!(
+        code(claim(old, "00000-00000-00000-00000", PW)),
+        "relay_code"
+    );
+    let bad = run(old.relay_claim("http://relay.example.com", None, &s(&fresh()), &s(PW)));
+    assert_eq!(code(bad), "relay_url");
+    let used = fresh();
+    claim(old, &used, PW).unwrap();
+    assert_eq!(old.poll()["relay"]["url"], url);
+    assert_eq!(old.poll()["scope"], "closed", "配对不等于开放");
+
+    open(old).unwrap();
+    wait("上线", || old.poll()["tunnel"] == "online");
+    assert_eq!(old.poll()["scope"], "public");
+    assert_eq!(old.poll()["direct"], false);
+    assert_eq!(code(claim(old, &used, PW)), "settings");
+    assert_eq!(code(old.relay_forget()), "settings");
+    let text = old.pairing_begin("甲", vec![], &s(PW)).unwrap();
+    assert!(text.starts_with("svp1:"));
+    assert_eq!(old.poll()["pairing"]["state"], "open");
+    assert!(!old.poll().to_string().contains(&text));
+    // 切换范围时配对一并取消，且不再外连
+    run(old.open_service(OpenScope::Loopback, 15, false)).unwrap();
+    assert_eq!(old.poll()["pairing"], Value::Null);
+    assert_eq!(old.poll()["tunnel"], "off");
+    open(old).unwrap();
+    wait("重新上线", || old.poll()["tunnel"] == "online");
+
+    // 迁移：旧设备关闭公网；新设备没有继承跳板身份，要用新配对码接管
+    let file = f.dir.path().join("a.svmig");
+    let mig = old.migration_begin(&s(PW), &file).unwrap();
+    assert_eq!(old.poll()["scope"], "closed");
+    let dir = tempfile::tempdir().unwrap();
+    let new = AppState::new(dir.path().to_owned());
+    new.set_package(file);
+    new.migration_import(&s(&mig), Credential::Password, &s(PW))
+        .unwrap();
+    new.unlock(&s(PW)).unwrap();
+    set_port(&new);
+    assert_eq!(new.poll()["relay"], Value::Null);
+    assert_eq!(code(open(&new)), "relay_not_set");
+    assert_eq!(
+        code(claim(&new, &used, PW)),
+        "relay_code",
+        "配对码只能用一次"
+    );
+    claim(&new, &fresh(), PW).unwrap();
+    // 旧设备即使取消迁移也已失效
+    old.migration_cancel().unwrap();
+    open(old).unwrap();
+    wait("被取代", || old.poll()["tunnel"] == "superseded");
+    wait("关闭", || old.poll()["scope"] == "closed");
+    assert_eq!(code(open(old)), "relay_superseded");
+    open(&new).unwrap();
+    wait("新设备上线", || new.poll()["tunnel"] == "online");
+    new.service.close();
+    old.relay_forget().unwrap();
+    assert_eq!(old.poll()["relay"], Value::Null);
 }

@@ -2,6 +2,10 @@
 mod engine;
 mod http;
 pub mod mcp;
-pub use engine::{Engine, LocalApproval, ServiceError};
-pub use http::{ServiceHandle, SharedEngine};
+mod remote;
+mod tunnel;
+pub use engine::{Access, Engine, LocalApproval, ServiceError};
+pub use http::{Public, ServiceHandle, SharedEngine};
+pub use remote::claim_relay;
+pub use tunnel::TunnelState;
 pub const DEFAULT_PORT: u16 = 47600;

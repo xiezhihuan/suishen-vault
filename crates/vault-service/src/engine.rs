@@ -1,3 +1,4 @@
+use crate::remote::Pairing;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -11,6 +12,7 @@ use vault_core::{
     policy,
     search::{AiSearchError, ClientId},
 };
+use vault_tunnel::PublicKey;
 use zeroize::Zeroizing;
 
 #[derive(Debug, Clone, Copy)]
@@ -26,12 +28,12 @@ impl From<vault_core::Error> for ServiceError {
         OFF
     }
 }
-fn random<const N: usize>() -> Result<[u8; N]> {
+pub(crate) fn random<const N: usize>() -> Result<[u8; N]> {
     let mut b = [0; N];
     getrandom::fill(&mut b).map_err(|_| OFF)?;
     Ok(b)
 }
-fn valid_text(s: &str, max: usize) -> bool {
+pub(crate) fn valid_text(s: &str, max: usize) -> bool {
     !s.trim().is_empty()
         && !s.chars().any(|c| {
             c.is_control()
@@ -39,10 +41,48 @@ fn valid_text(s: &str, max: usize) -> bool {
         })
         && s.chars().count() <= max
 }
+/// 客户端能从哪里连入。每枚令牌只对应一种，互不通用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Access {
+    /// 只能从本机连入。
+    #[default]
+    Local,
+    /// 本机，以及公网直连 HTTPS。跳板主机能看到它的令牌与取到的明文。
+    Direct,
+    /// 只能经端到端加密的桥接连入，且必须是这把公钥。
+    Bridge(PublicKey),
+}
+/// 一次请求从哪里来。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Origin {
+    Loopback,
+    Direct,
+    Bridge(PublicKey),
+}
+impl Access {
+    fn allows(self, origin: Origin) -> bool {
+        match (self, origin) {
+            (Self::Local | Self::Direct, Origin::Loopback) => true,
+            (Self::Direct, Origin::Direct) => true,
+            (Self::Bridge(a), Origin::Bridge(b)) => a == b,
+            _ => false,
+        }
+    }
+    fn kind(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Direct => "direct",
+            Self::Bridge(_) => "bridge",
+        }
+    }
+}
 #[derive(Clone, Deserialize, Serialize)]
 struct Client {
     name: String,
     tags: Vec<String>,
+    #[serde(default)]
+    access: Access,
     digest: [u8; 32],
     attempts: Vec<i64>,
     denied: HashMap<String, i64>,
@@ -108,6 +148,7 @@ pub struct Engine {
     clients: HashMap<ClientId, Client>,
     requests: HashMap<String, Request>,
     redemptions: HashMap<ClientId, Vec<i64>>,
+    pub(crate) pairing: Option<Pairing>,
     serving: bool,
 }
 impl Engine {
@@ -120,6 +161,7 @@ impl Engine {
             clients: HashMap::new(),
             requests: HashMap::new(),
             redemptions: HashMap::new(),
+            pairing: None,
             serving: false,
         };
         if engine.vault.lock_state() != LockState::Locked {
@@ -195,6 +237,7 @@ impl Engine {
         }
         self.requests.clear();
         self.redemptions.clear();
+        self.pairing = None;
         self.vault.revoke_item_refs();
         self.serving = false;
         if self.vault.lock_state() != LockState::Unlocked {
@@ -228,6 +271,9 @@ impl Engine {
         name: &str,
         tags: Vec<String>,
     ) -> Result<(ClientId, SecretString)> {
+        self.add_client_for(name, tags, Access::Local)
+    }
+    pub(crate) fn check_client(&self, name: &str, tags: &[String]) -> Result<()> {
         if !valid_text(name, 80)
             || tags.len() > 32
             || tags.iter().any(|s| !valid_text(s, 64))
@@ -235,12 +281,22 @@ impl Engine {
         {
             return Err(BAD);
         }
+        Ok(())
+    }
+    pub fn add_client_for(
+        &mut self,
+        name: &str,
+        tags: Vec<String>,
+        access: Access,
+    ) -> Result<(ClientId, SecretString)> {
+        self.check_client(name, &tags)?;
         let id = ClientId(random()?);
         let token = SecretString::new(hex::encode(*Zeroizing::new(random::<32>()?)));
         let digest = Sha256::digest(token.expose().as_bytes()).into();
         let c = Client {
             name: name.to_owned(),
             tags,
+            access,
             digest,
             attempts: vec![],
             denied: HashMap::new(),
@@ -256,7 +312,7 @@ impl Engine {
             self.clients
                 .iter()
                 .map(
-                    |(id, c)| json!({"id":hex::encode(id.0),"name":c.name,"tags":c.tags,
+                    |(id, c)| json!({"id":hex::encode(id.0),"name":c.name,"tags":c.tags,"access":c.access.kind(),
                     "search_paused":self.vault.ai_search_paused(*id).unwrap_or(false),
                     "request_paused":self.clock.wall_ms() < c.pause_until})
                 )
@@ -286,13 +342,25 @@ impl Engine {
         }
         Ok(())
     }
-    pub(crate) fn authenticate(&self, token: &str) -> Result<ClientId> {
+    /// 令牌与来源都要相符。来源不符与令牌无效不加区分。
+    pub(crate) fn authenticate(&self, token: &str, origin: Origin) -> Result<ClientId> {
         let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         self.clients
             .iter()
             .find(|(_, c)| bool::from(digest.ct_eq(&c.digest)))
+            .filter(|(_, c)| c.access.allows(origin))
             .map(|(id, _)| *id)
             .ok_or(ServiceError(401, "unauthorized"))
+    }
+    /// 端到端握手时核对：已配对的桥接，或正在等待配对。
+    pub(crate) fn knows_bridge(&self, key: &PublicKey) -> bool {
+        self.clients
+            .values()
+            .any(|c| c.access == Access::Bridge(*key))
+            || self.pairing.as_ref().is_some_and(|p| p.admits(key))
+    }
+    pub(crate) fn clock(&self) -> &dyn Clock {
+        &*self.clock
     }
     fn client(&self, id: ClientId) -> Result<&Client> {
         self.clients
@@ -469,7 +537,7 @@ impl Engine {
             let c=self.clients.get(&r.client)?;let (_,m)=self.vault.ai_item(r.item,&c.tags).ok()?;
             let ttl: u64 = if r.state == State::CodeIssued { 120_000 } else { 600_000 };
             let left = ttl.saturating_sub(r.age(self.clock.wall_ms(), self.clock.mono_ms())).div_ceil(1000);
-            Some(json!({"request_id":r.id,"client":c.name,"reason":r.reason,"title":m.title,"type":m.kind,
+            Some(json!({"request_id":r.id,"client":c.name,"access":c.access.kind(),"reason":r.reason,"title":m.title,"type":m.kind,
                 "domain":m.domains.first(),"masked_account":m.masked_account,
                 "fields":r.fields,"state":r.state,"expires_in_seconds":left}))
         }).collect::<Vec<_>>())

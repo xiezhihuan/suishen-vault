@@ -2,7 +2,7 @@
 
 随身保存并搜索账号、密码和要记的内容。Claude、Codex 可以按描述找到条目，但拿不到明文；某一条要由你在 App 上批准，再把一次性授权码交给 AI，AI 才能取到那一条。
 
-Rust 核心已实现本地加密密库、搜索、CSV 导入、备份和迁移。桌面 App 可完成首次设置、存取与搜索、逐条授权、导入备份与设备迁移，用法、打包与验证记录见 [桌面端](docs/桌面端.md)。Claude Code 与 Codex 的配置和联测命令见 [本机服务](docs/本机服务.md)。核心接入方式、测试与依赖审计见 [密库核心](docs/密库核心.md)。
+Rust 核心已实现本地加密密库、搜索、CSV 导入、备份和迁移。桌面 App 可完成首次设置、存取与搜索、逐条授权、导入备份与设备迁移，用法、打包与验证记录见 [桌面端](docs/桌面端.md)。Claude Code 与 Codex 的配置和联测命令见 [本机服务](docs/本机服务.md)。没有公网 IP 的设备可以经自己的服务器对外提供 MCP，见 [公网跳板](docs/公网跳板.md)。核心接入方式、测试与依赖审计见 [密库核心](docs/密库核心.md)。
 
 ## 文档
 
@@ -13,6 +13,7 @@ Rust 核心已实现本地加密密库、搜索、CSV 导入、备份和迁移�
 | [docs/威胁模型.md](docs/威胁模型.md) | 威胁、对策、残余风险 |
 | [docs/调研.md](docs/调研.md) | 同类项目与协议现状 |
 | [docs/桌面端.md](docs/桌面端.md) | 桌面 App 的用法、安全约束、打包、验证记录 |
+| [docs/公网跳板.md](docs/公网跳板.md) | 跳板部署、配对、两种访问方式、ssh -R 与 frp、验证记录 |
 | [docs/未验证项.md](docs/未验证项.md) | 还没有验证的事项 |
 
 ## 目录
@@ -22,7 +23,9 @@ Rust 核心已实现本地加密密库、搜索、CSV 导入、备份和迁移�
 | `crates/vault-core` | 加密、存储、检索、授权状态机 |
 | `crates/vault-service` | 设备端服务（MCP、GET 明文接口），嵌入 App |
 | `crates/vault-relay` | 公网跳板，部署在自己的服务器 |
+| `crates/vault-tunnel` | 跳板、设备、桥接共用的隧道协议 |
 | `crates/vault-bridge` | AI 侧桥接 |
+| `deploy/relay` | 跳板的 Dockerfile、Compose、Caddy、Nginx、systemd 配置 |
 | `apps/client` | Tauri 2 客户端 |
 
 ## 环境
@@ -38,6 +41,8 @@ Rust 核心已实现本地加密密库、搜索、CSV 导入、备份和迁移�
 npm ci                                        # 首次安装前端依赖
 npm test                                      # 统一测试：仓库、文档、前端、Rust、桌面壳编译
 npm run client:dev                            # 开发运行
+npm run test:relay                            # 公网端到端测试，需要 Docker
+npm run test:deploy                           # 按部署文档在干净容器里跑一遍，需要 Docker
 npm run package                               # 打安装包，见 docs/桌面端.md
 npm run client:build -- --debug --no-bundle   # 编译桌面可执行文件
 npm run cargo -- test -p vault-core           # 用统一环境运行任意 cargo 命令

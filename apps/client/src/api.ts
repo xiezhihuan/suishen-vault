@@ -19,6 +19,7 @@ export interface Settings {
 export interface Request {
   request_id: string;
   client: string;
+  access: "local" | "direct" | "bridge";
   reason: string;
   title: string;
   type: Kind;
@@ -28,12 +29,29 @@ export interface Request {
   state: "pending" | "code_issued";
   expires_in_seconds: number;
 }
+export type Tunnel = "off" | "connecting" | "online" | "offline" | "rejected" | "superseded";
+export interface Relay {
+  url: string;
+  custom_ca: boolean;
+  superseded: boolean;
+}
+export interface Pairing {
+  name: string;
+  state: "open" | "asked" | "ready";
+  expires_in_seconds: number;
+  label?: string;
+  fingerprint?: string;
+}
 export interface Status {
   version: string;
   platform: string;
   phase: Phase;
   scope: Scope;
   remaining: number | null;
+  tunnel: Tunnel;
+  direct: boolean;
+  relay: Relay | null;
+  pairing: Pairing | null;
   requests: Request[];
   backoff_ms: number;
   migrating: boolean;
@@ -79,6 +97,7 @@ export interface Client {
   id: string;
   name: string;
   tags: string[];
+  access: "local" | "direct" | "bridge";
   search_paused: boolean;
   request_paused: boolean;
 }

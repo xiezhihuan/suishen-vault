@@ -1,0 +1,10 @@
+# 默认全部排除，只放进编译跳板所需的文件
+*
+!Cargo.toml
+!Cargo.lock
+!crates
+crates/*/tests
+# 工作区成员须能被 cargo 识别，内容不参与编译
+!apps/client/src-tauri/Cargo.toml
+!apps/client/src-tauri/build.rs
+!apps/client/src-tauri/src

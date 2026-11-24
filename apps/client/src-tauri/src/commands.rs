@@ -4,7 +4,7 @@
 use crate::{
     error::{Ui, UiError, fail},
     settings::Settings,
-    state::{AppState, Credential, Decision, DraftIn, Secret, SecretField},
+    state::{AppState, Credential, Decision, DraftIn, OpenScope, Secret, SecretField},
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -128,8 +128,40 @@ pub fn generate(options: GeneratorIn) -> Ui<String> {
 // ---- 服务、客户端、申请 ----
 
 #[tauri::command]
-pub async fn open_service(app: App<'_>, minutes: u64) -> Ui<()> {
-    app.open_service(minutes).await
+pub async fn open_service(app: App<'_>, scope: OpenScope, minutes: u64, direct: bool) -> Ui<()> {
+    app.open_service(scope, minutes, direct).await
+}
+#[tauri::command]
+pub async fn relay_claim(
+    app: App<'_>,
+    url: String,
+    ca: Option<String>,
+    code: Secret,
+    password: Secret,
+) -> Ui<()> {
+    app.relay_claim(&url, ca.as_deref(), &code.0, &password.0)
+        .await
+}
+#[tauri::command(async)]
+pub fn relay_forget(app: App<'_>) -> Ui<()> {
+    app.relay_forget()
+}
+#[tauri::command(async)]
+pub fn pairing_begin(
+    app: App<'_>,
+    name: String,
+    tags: Vec<String>,
+    password: Secret,
+) -> Ui<String> {
+    app.pairing_begin(&name, tags, &password.0)
+}
+#[tauri::command(async)]
+pub fn pairing_accept(app: App<'_>) -> Ui<()> {
+    app.pairing_accept()
+}
+#[tauri::command(async)]
+pub fn pairing_cancel(app: App<'_>) -> Ui<()> {
+    app.pairing_cancel()
 }
 #[tauri::command(async)]
 pub fn close_service(app: App<'_>) {
@@ -140,8 +172,14 @@ pub fn list_clients(app: App<'_>) -> Ui<Value> {
     app.clients()
 }
 #[tauri::command(async)]
-pub fn add_client(app: App<'_>, name: String, tags: Vec<String>, password: Secret) -> Ui<String> {
-    app.add_client(&name, tags, &password.0)
+pub fn add_client(
+    app: App<'_>,
+    name: String,
+    tags: Vec<String>,
+    direct: bool,
+    password: Secret,
+) -> Ui<String> {
+    app.add_client(&name, tags, direct, &password.0)
 }
 #[tauri::command(async)]
 pub fn rename_client(app: App<'_>, id: String, name: String) -> Ui<()> {
@@ -176,7 +214,7 @@ pub fn audit(app: App<'_>, query: String) -> Ui<Value> {
 /// 接入配置文本，不含令牌。
 #[tauri::command(async)]
 pub fn mcp_config(app: App<'_>, client: String, transport: String) -> Ui<Value> {
-    crate::mcp_config::build(&client, &transport, app.settings().port)
+    app.mcp_config(&client, &transport)
 }
 
 // ---- 导入、备份、迁移。路径只由系统文件对话框给出，界面不能指定。 ----

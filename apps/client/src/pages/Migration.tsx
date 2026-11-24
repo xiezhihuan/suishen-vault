@@ -22,6 +22,7 @@ function Begin({ refresh, setCode }: { refresh: () => Promise<void>; setCode: (c
         <li>在这里生成迁移包，抄下迁移码。生成后这台变成只读，服务关闭，所有申请失效。</li>
         <li>用 U 盘等方式把迁移包拷到新设备，在新设备上选「从旧设备迁移过来」。</li>
         <li>新设备会显示完成码，回到这里输入，这台就停用。</li>
+        <li>用了公网跳板的，在新设备「开放范围」里用新的配对码接管，旧设备随即失效。桥接要重新配对。</li>
       </ol>
       <form onSubmit={(e) => {
         const f = takeForm(e);

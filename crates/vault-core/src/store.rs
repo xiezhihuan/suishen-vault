@@ -16,7 +16,7 @@ use crate::policy::FORMAT_VERSION;
 const APPLICATION_ID: i32 = 0x5356_4C54; // "SVLT"
 
 /// 建表语句，同时是打开时核对结构的依据。没有索引、触发器、视图。
-const SCHEMA: [(&str, &str); 8] = [
+const SCHEMA: [(&str, &str); 9] = [
     (
         "audit",
         "CREATE TABLE audit (id INTEGER PRIMARY KEY, blob BLOB NOT NULL) STRICT",
@@ -52,6 +52,10 @@ const SCHEMA: [(&str, &str); 8] = [
         "manifest",
         "CREATE TABLE manifest (id INTEGER PRIMARY KEY CHECK (id = 1), gen INTEGER NOT NULL, \
          blob BLOB NOT NULL) STRICT",
+    ),
+    (
+        "remote",
+        "CREATE TABLE remote (id INTEGER PRIMARY KEY CHECK (id = 1), blob BLOB NOT NULL) STRICT",
     ),
     (
         "search_quota",
@@ -193,15 +197,7 @@ impl Store {
         if ver != i64::from(FORMAT_VERSION) {
             return Err(Error::UnsupportedFormat);
         }
-        // 格式 1 的首版只有后六张表。只有完整核对旧结构后才升级，事务可重试。
-        if check_schema(&conn, &SCHEMA).is_err() {
-            check_schema(&conn, &SCHEMA[2..])?;
-            let tx = conn.unchecked_transaction()?;
-            for (_, sql) in &SCHEMA[..2] {
-                tx.execute_batch(sql)?;
-            }
-            tx.commit()?;
-        }
+        upgrade(&conn)?;
         let ok: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
         if ok != "ok" {
             return Err(Error::Tampered);
@@ -515,7 +511,29 @@ fn configure(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn check_schema(conn: &Connection, schema: &[(&str, &str)]) -> Result<()> {
+/// 同一格式内后来增加的表，按加入的先后分批。
+const ADDED: [&[&str]; 2] = [&["audit", "client"], &["remote"]];
+
+/// 只有完整核对旧结构后才补表，事务可重试。
+fn upgrade(conn: &Connection) -> Result<()> {
+    for batches in (0..=ADDED.len()).rev() {
+        let missing = |name: &str| ADDED[batches..].iter().any(|b| b.contains(&name));
+        let (add, known): (Vec<_>, Vec<_>) = SCHEMA.iter().partition(|(n, _)| missing(n));
+        match check_schema(conn, &known) {
+            Err(Error::Tampered) if batches > 0 => continue,
+            r => r?,
+        }
+        let tx = conn.unchecked_transaction()?;
+        for (_, sql) in add {
+            tx.execute_batch(sql)?;
+        }
+        tx.commit()?;
+        break;
+    }
+    Ok(())
+}
+
+fn check_schema(conn: &Connection, schema: &[&(&str, &str)]) -> Result<()> {
     let mut stmt =
         conn.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY name")?;
     let mut rows = stmt.query([])?;
@@ -563,4 +581,33 @@ pub(crate) mod step {
 #[cfg(not(test))]
 mod step {
     pub(super) fn hit(_: &'static str) {}
+}
+
+#[cfg(test)]
+mod upgrade_tests {
+    use super::*;
+
+    #[test]
+    fn older_layouts_gain_the_missing_tables_but_partial_ones_are_refused() {
+        for (drop, ok) in [
+            (&[][..], true),
+            (&["remote"], true),
+            (&["audit", "client", "remote"], true),
+            (&["client"], false),
+            (&["audit", "client"], false),
+            (&["item", "remote"], false),
+        ] {
+            let conn = Connection::open_in_memory().unwrap();
+            for (name, sql) in SCHEMA {
+                if !drop.contains(&name) {
+                    conn.execute_batch(sql).unwrap();
+                }
+            }
+            assert_eq!(upgrade(&conn).is_ok(), ok, "{drop:?}");
+            if ok {
+                let all: Vec<_> = SCHEMA.iter().collect();
+                check_schema(&conn, &all).unwrap();
+            }
+        }
+    }
 }

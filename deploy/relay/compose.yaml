@@ -1,0 +1,54 @@
+# 用法见 docs/公网跳板.md。先在同目录建 .env，写一行 RELAY_HOST=你的域名
+name: vault-relay
+
+services:
+  relay:
+    build:
+      context: ../..
+      dockerfile: deploy/relay/Dockerfile
+    image: vault-relay:local
+    environment:
+      VAULT_RELAY_HOST: ${RELAY_HOST:?请在 .env 里设置 RELAY_HOST}
+      VAULT_RELAY_LISTEN: 0.0.0.0:7470
+      VAULT_RELAY_PER_SOURCE: ${RELAY_PER_SOURCE:-60}
+    volumes:
+      - state:/var/lib/vault-relay
+    # 不映射端口：只有反向代理能访问
+    networks: [inner]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # 直连模式下明文会经过内存：禁止转储与交换
+    ulimits: { core: 0 }
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 64
+    restart: unless-stopped
+    logging: { options: { max-size: 1m, max-file: "2" } }
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on: [relay]
+    environment:
+      RELAY_HOST: ${RELAY_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    networks: [inner, outer]
+    read_only: true
+    tmpfs: [/config, /tmp]
+    ulimits: { core: 0 }
+    restart: unless-stopped
+    logging: { options: { max-size: 1m, max-file: "2" } }
+
+networks:
+  # 跳板不需要主动访问任何地方
+  inner: { internal: true }
+  outer: {}
+
+volumes:
+  state: {}
+  caddy_data: {}

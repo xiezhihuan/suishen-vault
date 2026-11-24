@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 vault-core.workspace = true
+vault-tunnel = { workspace = true, features = ["tls"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -20,7 +21,7 @@ hex = "0.4"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
-tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
 rmcp = { version = "=3.11.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
 tower-service = "0.3"
 

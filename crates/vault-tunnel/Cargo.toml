@@ -1,0 +1,33 @@
+[package]
+name = "vault-tunnel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# 设备与桥接需要 TLS；跳板只搬运字节，不编译 TLS
+tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+hex = "0.4"
+ring = "0.17"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+yamux = "0.13"
+hyper = { version = "1", features = ["http1", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros", "io-util"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"], optional = true }
+webpki-roots = { version = "1", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }

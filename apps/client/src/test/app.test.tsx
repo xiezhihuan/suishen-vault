@@ -324,6 +324,17 @@ describe("授权申请", () => {
   });
 });
 
+describe("公网直连的批准提示", () => {
+  test.each([["direct", true], ["bridge", false], ["local", false]] as const)("%s 客户端", async (access, warned) => {
+    const b = backend({ list_items: [] });
+    b.state.status = status({ requests: [request({ access })] });
+    render(<App />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: /有 1 个授权申请/ }));
+    await screen.findByText(/进入 AI 服务商的上下文/);
+    expect(screen.queryByText(/跳板那台服务器也能看到授权码/) !== null).toBe(warned);
+  });
+});
+
 describe("开放范围、客户端、审计、设置", () => {
   const go = async (name: RegExp | string) => {
     const user = userEvent.setup();
@@ -337,12 +348,89 @@ describe("开放范围、客户端、审计、设置", () => {
     const user = await go("开放范围");
     const choice = (name: RegExp) => screen.getByRole<HTMLButtonElement>("button", { name });
     expect(choice(/^关闭/).getAttribute("aria-pressed")).toBe("true");
+    // 局域网未实现；公网要先配对跳板
     expect([choice(/^局域网/).disabled, choice(/^公网/).disabled]).toEqual([true, true]);
+    expect(choice(/^公网/).textContent).toContain("先在下方配对跳板");
     await user.click(screen.getByRole("radio", { name: "15 分钟" }));
     await user.click(choice(/^仅本机/));
     await screen.findByRole("button", { name: "全部关闭并撤销授权" });
-    expect(b.of("open_service")).toEqual([{ minutes: 15 }]);
+    expect(b.of("open_service")).toEqual([{ scope: "loopback", minutes: 15, direct: false }]);
     expect(document.querySelector(".topbar")?.textContent).toContain("剩余 15 分钟");
+  });
+
+  const relay = { url: "https://relay.example.com", custom_ca: false, superseded: false };
+
+  test("配对跳板后提交的内容正确，机密输入随即清空", async () => {
+    const b = backend({ list_items: [], relay_claim: () => { b.state.status = status({ relay }); return null; } });
+    const user = await go("开放范围");
+    await user.type(screen.getByLabelText("跳板地址"), relay.url);
+    const code = screen.getByLabelText<HTMLInputElement>("配对码");
+    expect(code.type).toBe("password");
+    await user.type(code, "ABCDE-ABCDE-ABCDE-ABCDE");
+    await user.type(screen.getByLabelText("主密码"), FAKE.master);
+    await user.click(screen.getByRole("button", { name: "配对这台设备" }));
+    await screen.findByText(relay.url);
+    expect(b.of("relay_claim")).toEqual([{ url: relay.url, ca: null, code: "ABCDE-ABCDE-ABCDE-ABCDE", password: FAKE.master }]);
+    expect(html()).not.toContain(FAKE.master);
+  });
+
+  test("公网默认 1 小时、只开桥接；直连要主动勾选，并说明跳板能看到什么", async () => {
+    const b = backend({ list_items: [], open_service: () => { b.state.status = status({ scope: "public", remaining: 3600, tunnel: "online", direct: true, relay }); return null; } });
+    b.state.status = status({ relay });
+    const user = await go("开放范围");
+    await user.click(screen.getByRole("button", { name: /^公网/ }));
+    const dialog = within(await screen.findByRole("alertdialog"));
+    expect(dialog.getByText(/理论上能看到令牌、授权码/)).toBeTruthy();
+    expect(dialog.getByText(/只看到密文/)).toBeTruthy();
+    const direct = dialog.getByRole<HTMLInputElement>("checkbox");
+    expect(direct.checked).toBe(false);
+    expect(dialog.getByRole<HTMLInputElement>("radio", { name: "1 小时" }).checked).toBe(true);
+    expect(b.of("open_service")).toEqual([]);
+    await user.click(direct);
+    await user.click(dialog.getByRole("button", { name: "开放公网" }));
+    await screen.findByRole("button", { name: "全部关闭并撤销授权" });
+    expect(b.of("open_service")).toEqual([{ scope: "public", minutes: 60, direct: true }]);
+    expect(document.querySelector(".topbar")?.textContent).toContain("已连上跳板，直连已开");
+    expect(document.querySelector(".topbar")?.className).toContain("public");
+  });
+
+  test("被新设备取代时说明原因，不能再开放公网", async () => {
+    const b = backend({ list_items: [] });
+    b.state.status = status({ tunnel: "superseded", relay: { ...relay, superseded: true } });
+    await go("开放范围");
+    expect(screen.getByRole("alert").textContent).toContain("另一台设备接管");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: /^公网/ }).disabled).toBe(true);
+  });
+
+  test("桥接配对：配对串显示一次，核对指纹后才确认（AC-MCP-07）", async () => {
+    const line = "svp1:00ff00ff";
+    const pairing = { name: "办公室", state: "open" as const, expires_in_seconds: 600 };
+    const b = backend({
+      list_items: [], list_clients: [], mcp_config: { file: ".mcp.json", text: "{}", store_command: "x", env: null },
+      pairing_begin: () => { b.state.status = { ...b.state.status, pairing }; return line; },
+    });
+    b.state.status = status({ scope: "public", tunnel: "online", relay });
+    const user = await go("AI 客户端");
+    await user.type(screen.getByLabelText("桥接名称"), "办公室");
+    await user.type(screen.getByLabelText("配对用主密码"), FAKE.master);
+    await user.click(screen.getByRole("button", { name: "生成配对串" }));
+    await screen.findByText(line);
+    expect(b.of("pairing_begin")).toEqual([{ name: "办公室", tags: [], password: FAKE.master }]);
+    expect(screen.queryByRole("button", { name: /确认配对/ })).toBeNull();
+    b.state.status = { ...b.state.status, pairing: { ...pairing, state: "asked", label: "fake-laptop", fingerprint: "AAAA-BBBB-CCCC" } };
+    const accept = await screen.findByRole("button", { name: "指纹一致，确认配对" }, { timeout: 3000 });
+    expect(screen.getByLabelText("指纹").textContent).toBe("AAAA-BBBB-CCCC");
+    expect(html()).not.toContain(line);
+    await user.click(accept);
+    expect(b.of("pairing_accept")).toHaveLength(1);
+  });
+
+  test("没有开放公网时不能发起桥接配对", async () => {
+    const b = backend({ list_items: [], list_clients: [], mcp_config: { file: ".mcp.json", text: "{}", store_command: "x", env: null } });
+    b.state.status = status({ relay });
+    await go("AI 客户端");
+    await screen.findByText(/先到「开放范围」开放公网/);
+    expect(screen.queryByRole("button", { name: "生成配对串" })).toBeNull();
   });
 
   test("签发的令牌只显示一次", async () => {
@@ -354,7 +442,7 @@ describe("开放范围、客户端、审计、设置", () => {
     await user.type(screen.getByLabelText("主密码"), FAKE.master);
     await user.click(screen.getByRole("button", { name: "签发令牌" }));
     await screen.findByText(token);
-    expect(b.of("add_client")).toEqual([{ name: "笔记本", tags: ["工作", "常用"], password: FAKE.master }]);
+    expect(b.of("add_client")).toEqual([{ name: "笔记本", tags: ["工作", "常用"], direct: false, password: FAKE.master }]);
     await user.click(screen.getByRole("button", { name: "我已存好" }));
     expect(html()).not.toContain(token);
   });

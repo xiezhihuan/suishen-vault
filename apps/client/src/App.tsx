@@ -4,7 +4,7 @@ import { useActivity, useStatus } from "./hooks";
 import { Audit } from "./pages/Audit";
 import { Backup } from "./pages/Backup";
 import { Clients } from "./pages/Clients";
-import { Exposure, remainingText } from "./pages/Exposure";
+import { Exposure, remainingText, tunnelText } from "./pages/Exposure";
 import { Generator } from "./pages/Generator";
 import { Items } from "./pages/Items";
 import { Migration } from "./pages/Migration";
@@ -91,7 +91,7 @@ function TopBar({ status, refresh }: { status: Status; refresh: () => Promise<vo
   const act = (command: string) => void call(command).then(refresh, () => {});
   return (
     <header className={`topbar ${status.scope}`}>
-      <span className="scope"><i className="dot" aria-hidden="true" />开放范围：<strong>{scopeLabel(status.scope)}</strong> <span className="muted">{remainingText(status)}</span></span>
+      <span className="scope"><i className="dot" aria-hidden="true" />开放范围：<strong>{scopeLabel(status.scope)}</strong> <span className="muted">{remainingText(status)}</span> {status.scope === "public" && <span className="muted">{tunnelText(status)}</span>}</span>
       <span className="row-actions">
         {open && <button className="danger" onClick={() => act("close_service")}>全部关闭</button>}
         {status.phase === "unlocked" && <button onClick={() => act("lock")}>锁定</button>}

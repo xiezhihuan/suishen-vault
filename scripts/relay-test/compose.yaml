@@ -1,0 +1,27 @@
+# 只给自动测试用：换端口与镜像名，加抓包与 Nginx。叠加在 deploy/relay/compose.yaml 上。
+services:
+  relay:
+    image: sv-relay-test/relay
+  caddy:
+    ports: !override ["127.0.0.1:${SV_PORT}:${SV_PORT}"]
+  nginx:
+    profiles: [nginx]
+    image: nginx:1.27-alpine
+    depends_on: [relay]
+    ports: ["127.0.0.1:${SV_PORT}:${SV_PORT}"]
+    volumes:
+      - ${SV_TMP}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${SV_TMP}/tls:/etc/nginx/tls:ro
+    networks: [inner, outer]
+  tcpdump:
+    profiles: [capture]
+    image: sv-relay-test/tcpdump
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM alpine:3.22
+        RUN apk add --no-cache tcpdump
+    network_mode: service:relay
+    cap_add: [NET_RAW, NET_ADMIN]
+    volumes: ["${SV_TMP}:/out"]
+    command: tcpdump -i any -U -s 0 -Z root -w /out/${SV_CAPTURE_NAME:-capture.pcap}

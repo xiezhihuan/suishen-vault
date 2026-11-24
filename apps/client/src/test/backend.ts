@@ -6,14 +6,14 @@ export const FAKE = { password: "Fake-Violet-Secret-7172", master: "fake-master-
 
 export function status(part: Partial<Status> = {}): Status {
   return {
-    version: "0.0.0", platform: "macos", phase: "unlocked", scope: "closed", remaining: null, requests: [], backoff_ms: 0, migrating: false,
+    version: "0.0.0", platform: "macos", phase: "unlocked", scope: "closed", remaining: null, tunnel: "off", direct: false, relay: null, pairing: null, requests: [], backoff_ms: 0, migrating: false,
     settings: { auto_lock_minutes: 5, clipboard_seconds: 30, hide_to_tray: true, notify: true, shortcut: "CmdOrCtrl+Alt+K", port: 47600 },
     nav: { seq: 0, target: "" }, data_dir: "/tmp/fake", ...part,
   };
 }
 
 export const request = (part: Partial<Request> = {}): Request => ({
-  request_id: "req_1", client: "笔记本上的 Claude", reason: "要登录测试站", title: "公司邮箱", type: "login", domain: "example.test",
+  request_id: "req_1", client: "笔记本上的 Claude", access: "local", reason: "要登录测试站", title: "公司邮箱", type: "login", domain: "example.test",
   masked_account: "f***", fields: ["username", "password"], state: "pending", expires_in_seconds: 590, ...part,
 });
 

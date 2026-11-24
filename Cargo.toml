@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "crates/vault-core",
   "crates/vault-service",
+  "crates/vault-tunnel",
   "crates/vault-relay",
   "crates/vault-bridge",
   "apps/client/src-tauri",
@@ -17,6 +18,8 @@ publish = false
 [workspace.dependencies]
 vault-core = { path = "crates/vault-core" }
 vault-service = { path = "crates/vault-service" }
+vault-tunnel = { path = "crates/vault-tunnel" }
+vault-relay = { path = "crates/vault-relay" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.12", features = [] }

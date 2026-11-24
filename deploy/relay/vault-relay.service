@@ -1,0 +1,49 @@
+[Unit]
+Description=suishen-vault relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=vault-relay
+Group=vault-relay
+# 主机名写在 /etc/vault-relay.env：VAULT_RELAY_HOST=relay.example.com
+EnvironmentFile=/etc/vault-relay.env
+ExecStart=/usr/local/bin/vault-relay serve
+Restart=always
+RestartSec=2
+
+StateDirectory=vault-relay
+StateDirectoryMode=0700
+UMask=0077
+
+# 直连模式下明文会经过内存：禁止转储与交换
+LimitCORE=0
+MemoryMax=256M
+MemorySwapMax=0
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target

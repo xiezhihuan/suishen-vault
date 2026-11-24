@@ -16,15 +16,15 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use vault_core::{
-    Auth, DeviceState, ListFilter, LockState, MigrationCode, PendingRecovery, RecoveryKey,
-    RestoreAuth, SecretString, Setup, SystemClock, Vault,
+    Auth, DeviceState, ExposureScope, ListFilter, LockState, MigrationCode, PendingRecovery,
+    RecoveryKey, RestoreAuth, SecretString, Setup, SystemClock, Vault,
     import::{Adjustment, CsvFormat, ImportReport, RejectReason},
     import_migration,
     model::{AiField, CustomField, Item, ItemDraft, ItemId, ItemKind, ItemMeta, Secrets},
     restore_backup,
     search::ClientId,
 };
-use vault_service::{Engine, LocalApproval, ServiceHandle, SharedEngine};
+use vault_service::{Access, Engine, LocalApproval, Public, ServiceHandle, SharedEngine};
 
 const VAULT_FILE: &str = "vault.svault";
 /// 两次心跳间隔超过这个值，视为系统休眠过。
@@ -128,6 +128,13 @@ pub enum Decision {
     Revoke,
     View,
     Issue,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenScope {
+    Loopback,
+    Public,
 }
 
 /// 尚未完成、只在内存里的流程。
@@ -269,6 +276,10 @@ impl AppState {
             "platform": std::env::consts::OS,
             "scope": scope,
             "remaining": remaining,
+            "tunnel": self.service.tunnel(),
+            "direct": self.service.direct(),
+            "relay": null,
+            "pairing": null,
             "requests": [],
             "backoff_ms": 0,
             "migrating": false,
@@ -280,6 +291,8 @@ impl AppState {
             Ok(shared) => {
                 let mut e = hold(&shared);
                 out["requests"] = e.pending();
+                out["relay"] = e.relay_info();
+                out["pairing"] = e.pairing_info();
                 out["backoff_ms"] = json!(e.vault().backoff_remaining_ms());
                 out["migrating"] = json!(e.vault().device_state() == DeviceState::Migrating);
                 match (e.vault().device_state(), e.vault().lock_state()) {
@@ -320,7 +333,7 @@ impl AppState {
     pub fn set_settings(&self, new: Settings) -> Ui<()> {
         new.check()?;
         let old = self.settings();
-        if new.port != old.port && self.service.scope() != vault_core::ExposureScope::Closed {
+        if new.port != old.port && self.service.scope() != ExposureScope::Closed {
             return fail("settings", "请先关闭服务再改端口");
         }
         new.save(&self.dir)?;
@@ -620,7 +633,8 @@ impl AppState {
 
     // ---- 服务、客户端、申请 ----
 
-    pub async fn open_service(&self, minutes: u64) -> Ui<()> {
+    /// 已开放时视为切换：先关闭，使所有申请、授权码失效，再按新范围打开。
+    pub async fn open_service(&self, scope: OpenScope, minutes: u64, direct: bool) -> Ui<()> {
         if ![0, 15, 60, 480].contains(&minutes) {
             return fail("invalid_params", "自动关闭时间无效");
         }
@@ -630,19 +644,101 @@ impl AppState {
         }
         let port = self.settings().port;
         let ttl = (minutes != 0).then(|| Duration::from_secs(minutes * 60));
-        self.service.open_shared(shared, port, ttl).await?;
+        let public = (scope == OpenScope::Public).then_some(Public { direct });
+        self.service.close();
+        self.service.open(shared, port, ttl, public).await?;
         Ok(())
+    }
+
+    // ---- 公网跳板与桥接配对 ----
+
+    /// 登记或接管跳板。网络往返期间不持有密库锁。
+    pub async fn relay_claim(
+        &self,
+        url: &str,
+        ca: Option<&str>,
+        code: &SecretString,
+        password: &SecretString,
+    ) -> Ui<()> {
+        if self.service.scope() == ExposureScope::Public {
+            return fail("settings", "请先关闭公网再配对跳板");
+        }
+        let claim = self
+            .unlocked(|e| Ok(e.relay_begin(url, ca, code.expose(), Auth::Password(password))?))?;
+        let claim = vault_service::claim_relay(claim).await?;
+        self.engine(|e| Ok(e.relay_commit(claim)?)).map_err(|_| {
+            UiError::new(
+                "relay_save",
+                "跳板已接受，但没有保存成功。请重新生成配对码再试一次",
+            )
+        })
+    }
+
+    pub fn relay_forget(&self) -> Ui<()> {
+        if self.service.scope() == ExposureScope::Public {
+            return fail("settings", "请先关闭公网");
+        }
+        self.unlocked(|e| Ok(e.relay_forget()?))
+    }
+
+    pub fn pairing_begin(
+        &self,
+        name: &str,
+        tags: Vec<String>,
+        password: &SecretString,
+    ) -> Ui<String> {
+        if self.service.scope() != ExposureScope::Public {
+            return fail("settings", "请先开放公网，桥接要连到这台设备才能配对");
+        }
+        self.unlocked(|e| {
+            let text = e.pairing_begin(name.trim(), tags, Auth::Password(password))?;
+            Ok(text.expose().to_owned())
+        })
+    }
+
+    pub fn pairing_accept(&self) -> Ui<()> {
+        self.unlocked(|e| Ok(e.pairing_accept()?))
+    }
+
+    pub fn pairing_cancel(&self) -> Ui<()> {
+        self.engine(|e| {
+            e.pairing_cancel();
+            Ok(())
+        })
     }
 
     pub fn clients(&self) -> Ui<Value> {
         self.unlocked(|e| Ok(e.clients()))
     }
 
-    pub fn add_client(&self, name: &str, tags: Vec<String>, password: &SecretString) -> Ui<String> {
+    /// `direct` 表示这枚令牌也可从公网直连 HTTPS 使用。
+    pub fn add_client(
+        &self,
+        name: &str,
+        tags: Vec<String>,
+        direct: bool,
+        password: &SecretString,
+    ) -> Ui<String> {
+        let access = if direct {
+            Access::Direct
+        } else {
+            Access::Local
+        };
         self.unlocked(|e| {
             e.verify_user(Auth::Password(password))?;
-            Ok(e.add_client(name.trim(), tags)?.1.expose().to_owned())
+            let (_, token) = e.add_client_for(name.trim(), tags, access)?;
+            Ok(token.expose().to_owned())
         })
+    }
+
+    pub fn mcp_config(&self, client: &str, transport: &str) -> Ui<Value> {
+        let relay = self.unlocked(|e| Ok(e.relay_info()))?;
+        crate::mcp_config::build(
+            client,
+            transport,
+            self.settings().port,
+            relay["url"].as_str(),
+        )
     }
 
     pub fn rename_client(&self, id: &str, name: &str) -> Ui<()> {
