@@ -1,5 +1,6 @@
 //! 密库：创建、解锁、锁定、改密、恢复、条目读写、授权时的重新解锁。
 
+pub mod inbox;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -599,6 +600,14 @@ impl Vault {
 
     /// 提交一组改动：条目、字段、清单在同一事务里，全部成功或全部不变。
     fn commit(&mut self, changes: Vec<Change>) -> Result<()> {
+        self.commit_with(changes, |_| Ok(()))
+    }
+
+    fn commit_with(
+        &mut self,
+        changes: Vec<Change>,
+        extra: impl FnOnce(&rusqlite::Transaction) -> Result<()>,
+    ) -> Result<()> {
         if changes.is_empty() {
             return Ok(());
         }
@@ -647,6 +656,7 @@ impl Vault {
             triples.into_iter().map(|(id, (rev, d))| (id, rev, d)),
         ))?;
         self.store.write(|tx| {
+            extra(tx)?;
             for id in &deletes {
                 store::delete_item(tx, *id)?;
             }
@@ -680,7 +690,7 @@ impl Vault {
     }
 
     /// 一次事务写入多条。
-    pub(crate) fn add_many(&mut self, drafts: &[ItemDraft]) -> Result<Vec<ItemId>> {
+    pub fn add_many(&mut self, drafts: &[ItemDraft]) -> Result<Vec<ItemId>> {
         let keys = self.writable()?;
         let now = self.clock.wall_ms();
         let mut ids = Vec::with_capacity(drafts.len());
@@ -854,9 +864,10 @@ impl Vault {
 
     pub fn remove_client(&self, id: [u8; 16]) -> Result<()> {
         self.active()?;
-        self.store
-            .service_db()
-            .execute("DELETE FROM client WHERE id=?1", [id])?;
+        let tx = self.store.service_db().unchecked_transaction()?;
+        tx.execute("DELETE FROM draft_inbox WHERE owner=?1", [id])?;
+        tx.execute("DELETE FROM client WHERE id=?1", [id])?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -906,12 +917,21 @@ impl Vault {
     }
 
     pub fn append_service_audit(&self, record: &[u8]) -> Result<()> {
+        let tx = self.store.service_db().unchecked_transaction()?;
+        Self::audit_in(&tx, self.mdk()?, &self.header.vault_id, record)?;
+        Ok(tx.commit()?)
+    }
+
+    fn audit_in(
+        tx: &rusqlite::Transaction,
+        mdk: &Key,
+        vid: &[u8; 16],
+        record: &[u8],
+    ) -> Result<()> {
         use crate::crypto::aead::{self, Aad, Purpose};
-        let db = self.store.service_db();
-        let tx = db.unchecked_transaction()?;
         let id: i64 = tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM audit", [], |r| r.get(0))?;
-        let aad = Aad::new(Purpose::Audit, &self.header.vault_id).int(id as u64);
-        let blob = aead::seal(self.mdk()?, &aad, record)?;
+        let aad = Aad::new(Purpose::Audit, vid).int(id as u64);
+        let blob = aead::seal(mdk, &aad, record)?;
         tx.execute(
             "INSERT INTO audit VALUES (?1,?2)",
             rusqlite::params![id, blob],
@@ -920,7 +940,6 @@ impl Vault {
             "DELETE FROM audit WHERE id <= ?1",
             [id.saturating_sub(10000)],
         )?;
-        tx.commit()?;
         Ok(())
     }
 

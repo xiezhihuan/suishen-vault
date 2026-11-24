@@ -465,6 +465,7 @@ struct LocalBackend {
 impl LocalBackend {
     fn charge(&self, op: &Operation) -> Result<()> {
         let (kind, limit) = match op {
+            Operation::Propose(_) => ("draft", self.limits.request),
             Operation::Search(_) => ("search", self.limits.search),
             Operation::Request { .. } => ("request", self.limits.request),
             Operation::Secret(..) => ("secret", self.limits.secret),
@@ -479,6 +480,7 @@ impl Backend for LocalBackend {
         let s = &self.session;
         self.charge(&op)?;
         let value = match op {
+            Operation::Propose(p) => s.with(|e| e.propose(c, p))?,
             Operation::Search(q) => s.with(|e| e.search(c, &q))?,
             Operation::Request {
                 item_ref,
@@ -558,7 +560,7 @@ async fn route(req: Request<Incoming>, session: Arc<Session>, via: &Via) -> Resu
         return pair(req, &session, *peer, via).await;
     }
     match (method.as_str(), path.as_str()) {
-        ("GET", "/health") | ("POST", "/mcp" | "/v1/search" | "/v1/requests") => {}
+        ("GET", "/health") | ("POST", "/mcp" | "/v1/drafts" | "/v1/search" | "/v1/requests") => {}
         ("GET", _) if handle.is_some() => {}
         (_, _) if handle.is_some() => return Err(ServiceError(405, "method_not_allowed")),
         (_, "/mcp") => return Err(ServiceError(405, "method_not_allowed")),
@@ -650,7 +652,9 @@ async fn route(req: Request<Incoming>, session: Arc<Session>, via: &Via) -> Resu
         }
         return Ok(Response::from_parts(parts, Full::new(data)));
     }
-    let op = if path == "/v1/search" {
+    let op = if path == "/v1/drafts" {
+        Operation::Propose(serde_json::from_slice(&body).map_err(|_| BAD)?)
+    } else if path == "/v1/search" {
         let q: mcp::Search = serde_json::from_slice(&body).map_err(|_| BAD)?;
         Operation::Search(q.query)
     } else {

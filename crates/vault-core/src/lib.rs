@@ -20,6 +20,7 @@ pub mod import;
 mod mask;
 mod migrate;
 pub mod model;
+pub mod paste;
 pub mod policy;
 pub mod scope;
 mod sealed;
@@ -45,6 +46,7 @@ pub use secret::{Key, SecretString};
 pub use store::DeviceState;
 pub use strength::check_master_password;
 pub use totp::TotpCode;
+pub use vault::inbox;
 pub use vault::{
     Auth, ListFilter, LockMode, LockState, PendingRecovery, RecoveryTicket, Setup, Vault,
 };

@@ -59,7 +59,7 @@ export function Exposure({ status, refresh }: { status: Status; refresh: () => P
     return s === "public" && !usable ? " · 先在下方配对跳板" : "";
   };
   return (
-    <Page title="开放范围" note="决定哪里的 AI 能连到这台设备。能连上也只能搜打码信息和提申请。">
+    <Page title="开放范围" note="决定哪里的 AI 能连到这台设备。客户端的草稿权限在「AI 客户端」中设置。">
       <Card tone={status.scope === "public" ? "warn" : open ? "good" : undefined}>
         <p className="scope-now">当前：<strong>{scopeLabel(status.scope)}</strong> {remainingText(status)}</p>
         {status.scope === "public" && <p role="status">{tunnelText(status)}</p>}

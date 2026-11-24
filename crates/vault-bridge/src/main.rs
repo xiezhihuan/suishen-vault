@@ -112,6 +112,7 @@ impl Device {
 impl Backend for Device {
     async fn execute(&self, op: Operation) -> Result<String, ServiceError> {
         match op {
+            Operation::Propose(p) => self.send("POST", "/v1/drafts", None, Some(json!(p))).await,
             Operation::Search(q) => {
                 self.send("POST", "/v1/search", None, Some(json!({"query":q})))
                     .await

@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use vault_core::model::AiField;
 
 pub enum Operation {
+    Propose(vault_core::inbox::Proposal),
     Search(String),
     Request {
         item_ref: String,
@@ -50,6 +51,7 @@ fn parse<T: serde::de::DeserializeOwned>(v: Value) -> Result<T> {
 impl Operation {
     fn from_call(name: &str, args: Value) -> Result<Self> {
         Ok(match name {
+            "propose_entry" => Self::Propose(parse(args)?),
             "search_entries" => Self::Search(parse::<Search>(args)?.query),
             "request_access" => {
                 let a: Access = parse(args)?;
@@ -92,6 +94,7 @@ fn catalog() -> Vec<Tool> {
         ("request_access","为一条记录的特定字段申请授权，说明用途。",json!({"item_ref":string,"fields":{"type":"array","minItems":1,"maxItems":4,"uniqueItems":true,"items":{"enum":["username","password","url","note","body","custom"]}},"reason":{"type":"string","minLength":1,"maxLength":200}}),vec!["item_ref","fields","reason"]),
         ("get_request_status","查看本人申请的状态，状态中不含码或明文。",json!({"request_id":id,"wait_seconds":{"type":"integer","minimum":0,"maximum":20}}),vec!["request_id"]),
         ("get_secret","用用户亲自提供的一次性码领取获批字段。",json!({"request_id":id,"code":string}),vec!["request_id","code"]),
+        ("propose_entry","提交待用户核对的草稿。不要向用户索要密码，不要把密码、密钥或正文写进任何字段。让用户到 App 里补。",json!({"title":{"type":"string","minLength":1,"maxLength":200},"type":{"enum":["login","note","custom"]},"url":{"type":"string","maxLength":2048},"tags":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":48}},"hint":{"type":"string","maxLength":500},"username":{"type":"string","maxLength":254}}),vec!["title","type"]),
     ].into_iter().map(|(name,desc,props,required)|{
         let schema=json!({"type":"object","properties":props,"required":required,"additionalProperties":false});
         Tool::new(name,format!("{desc}{INSTRUCTIONS}"),schema.as_object().cloned().unwrap_or_default())

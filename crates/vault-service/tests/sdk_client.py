@@ -14,13 +14,16 @@ async def exercise(read, write):
         info = await sdk.initialize()
         assert info.protocolVersion == "2025-11-25"
         names = [t.name for t in (await sdk.list_tools()).tools]
-        assert names == ["search_entries", "request_access", "get_request_status", "get_secret"]
+        assert names == ["search_entries", "request_access", "get_request_status", "get_secret", "propose_entry"]
 
         async def call(name, **kwargs):
             reply = await sdk.call_tool(name, kwargs)
             assert not reply.isError
             return json.loads(reply.content[0].text)
 
+        assert await call("propose_entry", title="示例新站", type="login", tags=["工作"]) == {"submitted": True}
+        bad = await sdk.call_tool("propose_entry", {"title":"示例", "type":"login", "password":"Fake-reject-4471"})
+        assert bad.isError and "Fake-reject-4471" not in str(bad.content)
         hits = await call("search_entries", query="Cassiopeia")
         request = await call("request_access", item_ref=hits["results"][0]["item_ref"],
                              fields=["password"], reason="官方 SDK 假数据测试")

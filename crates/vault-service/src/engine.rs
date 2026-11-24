@@ -83,6 +83,10 @@ struct Client {
     tags: Vec<String>,
     #[serde(default)]
     access: Access,
+    #[serde(default)]
+    drafts_enabled: bool,
+    #[serde(default)]
+    draft_attempts: Vec<i64>,
     digest: [u8; 32],
     attempts: Vec<i64>,
     denied: HashMap<String, i64>,
@@ -298,6 +302,8 @@ impl Engine {
             tags,
             access,
             digest,
+            drafts_enabled: false,
+            draft_attempts: vec![],
             attempts: vec![],
             denied: HashMap::new(),
             streak: 0,
@@ -313,11 +319,49 @@ impl Engine {
                 .iter()
                 .map(
                     |(id, c)| json!({"id":hex::encode(id.0),"name":c.name,"tags":c.tags,"access":c.access.kind(),
-                    "search_paused":self.vault.ai_search_paused(*id).unwrap_or(false),
+                    "drafts_enabled":c.drafts_enabled,"search_paused":self.vault.ai_search_paused(*id).unwrap_or(false),
                     "request_paused":self.clock.wall_ms() < c.pause_until})
                 )
                 .collect::<Vec<_>>()
         )
+    }
+    pub fn allow_drafts(&mut self, id: ClientId, enabled: bool) -> Result<()> {
+        if self.vault.lock_state() != LockState::Unlocked {
+            return Err(OFF);
+        }
+        let mut client = self.client(id)?.clone();
+        client.drafts_enabled = enabled;
+        self.save(id, &client)?;
+        self.clients.insert(id, client);
+        Ok(())
+    }
+    pub fn propose(&mut self, id: ClientId, p: vault_core::inbox::Proposal) -> Result<Value> {
+        let mut c = self.client(id)?.clone();
+        if !c.drafts_enabled || self.vault.lock_state() != LockState::Unlocked {
+            return Err(ServiceError(403, "drafts_disabled"));
+        }
+        charge(&mut c.draft_attempts, self.clock.wall_ms(), 4)?;
+        self.save(id, &c)?;
+        self.clients.insert(id, c.clone());
+        if !p.valid() || (!c.tags.is_empty() && p.tags.iter().any(|t| !c.tags.contains(t))) {
+            return Err(BAD);
+        }
+        self.vault.enqueue_draft(id.0, &p).map_err(|e| {
+            if e == vault_core::Error::TooLarge {
+                LIMIT
+            } else {
+                OFF
+            }
+        })?;
+        Ok(json!({"submitted":true}))
+    }
+    pub fn draft_inbox(&self) -> Result<Value> {
+        let mut rows = Vec::new();
+        for d in self.vault.pending_drafts()? {
+            let c = self.client(ClientId(d.owner))?;
+            rows.push(json!({"id":d.id.to_hex(),"client":c.name,"created":d.created,"domain":d.proposal.host(),"proposal":d.proposal}));
+        }
+        Ok(Value::Array(rows))
     }
     pub fn rename_client(&mut self, id: ClientId, name: &str) -> Result<()> {
         if !valid_text(name, 80) {

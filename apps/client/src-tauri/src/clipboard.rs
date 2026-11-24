@@ -111,3 +111,62 @@ mod imp {
     }
     pub fn clear() {}
 }
+
+/// 系统复制序号。不支持变更检测的系统不提供“保存后清空”。
+pub fn stamp() -> Option<String> {
+    let mark = imp::mark().0;
+    (mark != 0).then(|| mark.to_string())
+}
+
+#[cfg(any(target_os = "macos", windows, test))]
+fn matches_paste(
+    original: &SecretString,
+    expected: &str,
+    current: Option<SecretString>,
+    stamp: Option<String>,
+) -> bool {
+    stamp.as_deref() == Some(expected) && current.is_some_and(|text| text.ct_eq(original.expose()))
+}
+
+pub fn clear_matching(original: &SecretString, expected: &str) {
+    #[cfg(any(target_os = "macos", windows))]
+    {
+        if stamp().as_deref() != Some(expected) {
+            return;
+        }
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            let current = clipboard.get_text().ok().map(SecretString::new);
+            if matches_paste(original, expected, current, stamp()) {
+                let _ = clipboard.clear();
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = (original, expected);
+}
+
+#[cfg(test)]
+mod paste_tests {
+    use super::*;
+    #[test]
+    fn must_match_both_content_and_copy_generation() {
+        let source = SecretString::from("  Fake:🔐  ");
+        for (value, mark, ok) in [
+            (Some("  Fake:🔐  "), Some("1"), true),
+            (Some("  Fake:🔐  "), Some("2"), false),
+            (Some("Fake:🔐"), Some("1"), false),
+            (None, Some("1"), false),
+            (Some("  Fake:🔐  "), None, false),
+        ] {
+            assert_eq!(
+                matches_paste(
+                    &source,
+                    "1",
+                    value.map(SecretString::from),
+                    mark.map(str::to_owned)
+                ),
+                ok
+            );
+        }
+    }
+}

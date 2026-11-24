@@ -15,7 +15,7 @@ export function Clients({ status }: { status: Status }) {
   useEffect(() => { void run(load); }, [load, run, pairing]);
   const relay = status.relay !== null;
   return (
-    <Page title="AI 客户端" note="给 Claude、Codex 各签发一枚令牌。令牌只能搜打码信息和提申请，换不到密码。">
+    <Page title="AI 客户端" note="给 Claude、Codex 各签发一枚令牌。默认允许搜索打码信息和提申请，提交草稿须单独打开。">
       {token && (
         <div ref={top}><Card tone="good" title={`${token.name} 的令牌 · 只显示这一次`}>
           <code className="value block">{token.value}</code>
@@ -126,11 +126,12 @@ function ClientCard({ client: c, reload }: { client: Client; reload: () => void 
       )}
       {mode === "" && <div className="actions">
         {c.search_paused && <button className="primary" onClick={() => setMode("resume")}>恢复搜索…</button>}
+        <button disabled={busy} onClick={() => act(() => call("draft_permission", {id:c.id, enabled:!c.drafts_enabled}))}>{c.drafts_enabled ? "关闭草稿提交" : "允许提交草稿"}</button>
         <button onClick={() => setMode("rename")}>改名</button>
         <button className="danger" onClick={() => setMode("revoke")}>吊销…</button>
       </div>}
       {mode === "revoke" && <Confirm title={`吊销「${c.name}」？`} confirm="吊销" danger onCancel={() => setMode("")} onConfirm={() => act(() => call("revoke_client", { id: c.id }))}>
-        <p>令牌立即失效，它的申请和授权码也一并作废。</p>
+        <p>令牌立即失效，它的申请和授权码一并作废，待核对的草稿也会清除。</p>
       </Confirm>}
     </article>
   );

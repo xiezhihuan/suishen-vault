@@ -14,8 +14,11 @@ import { Broken, ImportDone, Locked, Recover, Retired, UnlockForm, Welcome, type
 import { scopeLabel } from "./status";
 import { Card } from "./ui";
 
+import { Paste } from "./pages/Paste";
+import { Inbox } from "./pages/Inbox";
+
 const PAGES = {
-  items: "密库", requests: "授权申请", clients: "AI 客户端", exposure: "开放范围", audit: "审计记录",
+  items: "密库", paste: "智能粘贴", inbox: "草稿箱", requests: "授权申请", clients: "AI 客户端", exposure: "开放范围", audit: "审计记录",
   generator: "密码生成", backup: "导入与备份", migration: "设备迁移", settings: "设置",
 } as const;
 type PageId = keyof typeof PAGES;
@@ -30,6 +33,11 @@ export function App() {
   // 迁移码只显示一次，切换页面不能丢
   const [migrationCode, setMigrationCode] = useState("");
 
+  useEffect(() => {
+    const clear = () => { setPage(p => p === "paste" || p === "inbox" ? "items" : p); void refresh(); };
+    window.addEventListener("suishen:locked", clear);
+    return () => window.removeEventListener("suishen:locked", clear);
+  }, [refresh]);
   const nav = status?.nav;
   useEffect(() => {
     if (!nav?.seq) return;
@@ -70,6 +78,8 @@ export function App() {
         {status.migrating && page !== "migration" && <button className="banner" onClick={() => setPage("migration")}>正在迁移，密库只读。点这里完成或取消。</button>}
         {waiting > 0 && page !== "requests" && <button className="banner urgent" onClick={() => setPage("requests")}>有 {waiting} 个授权申请等你处理</button>}
         <main>
+          {page === "paste" && <Paste />}
+          {page === "inbox" && <Inbox />}
           {page === "items" && <Items focusSeq={focusSeq} />}
           {page === "requests" && <Requests status={status} refresh={refresh} issued={issued} setIssued={setIssued} />}
           {page === "clients" && <Clients status={status} />}

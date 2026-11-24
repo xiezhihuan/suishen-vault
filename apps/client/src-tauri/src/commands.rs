@@ -43,8 +43,9 @@ pub fn unlock(app: App<'_>, password: Secret) -> Ui<()> {
     app.unlock(&password.0)
 }
 #[tauri::command(async)]
-pub fn lock(app: App<'_>) {
+pub fn lock(handle: AppHandle, app: App<'_>) {
     app.lock();
+    crate::shell::dismiss_entry_assistant(&handle);
 }
 #[tauri::command(async)]
 pub fn recovery_begin(app: App<'_>, key: Secret, password: Secret) -> Ui<Value> {
@@ -339,4 +340,91 @@ pub fn set_settings(handle: AppHandle, app: App<'_>, settings: Settings) -> Ui<(
         return fail("shortcut", e);
     }
     Ok(())
+}
+
+#[tauri::command(async)]
+pub fn pasteboard_stamp() -> Option<String> {
+    crate::clipboard::stamp()
+}
+
+/// IPC 仍只返回区间。Rust 用字节，WebView 的 slice 用 UTF-16 码元。
+#[tauri::command(async)]
+pub fn parse_paste(app: App<'_>, source: Secret) -> Ui<Vec<vault_core::paste::Span>> {
+    use vault_core::paste::{Recognizer, Rules};
+    app.unlocked(|_| {
+        let text = source.0.expose();
+        let mut spans = Rules.recognize(text)?;
+        let mut offset = 0;
+        for span in &mut spans {
+            let n = text[span.start..span.end].encode_utf16().count();
+            span.start = offset;
+            offset += n;
+            span.end = offset;
+        }
+        Ok(spans)
+    })
+}
+#[tauri::command(async)]
+pub fn save_paste(
+    app: App<'_>,
+    drafts: Vec<DraftIn>,
+    allow_duplicates: bool,
+    clipboard: Option<Secret>,
+    stamp: Option<String>,
+) -> Ui<usize> {
+    app.unlocked(|e| {
+        if drafts.is_empty() || drafts.len() > 256 {
+            return fail("paste_size", "一次可确认 1 到 256 条");
+        }
+        let rows: Vec<_> = drafts
+            .into_iter()
+            .map(|d| d.into_draft(Default::default()))
+            .collect();
+        if let Some(index) = rows
+            .iter()
+            .position(|d| !vault_core::paste::fits_storage(d))
+        {
+            return fail(
+                "paste_format",
+                &format!(
+                    "请核对第 {} 条的标题和网址，去掉多余空白或控制字符。原文仍在左侧。",
+                    index + 1
+                ),
+            );
+        }
+        if !allow_duplicates && e.vault().has_duplicate_logins(&rows)? {
+            return fail(
+                "duplicate",
+                "已有相同域名和账号，或本批中有重复。仍要另存为新条目吗？",
+            );
+        }
+        let n = e.vault_mut().add_many(&rows)?.len();
+        if let (Some(original), Some(stamp)) = (clipboard, stamp) {
+            crate::clipboard::clear_matching(&original.0, &stamp)
+        }
+        Ok(n)
+    })
+}
+#[tauri::command(async)]
+pub fn draft_permission(app: App<'_>, id: String, enabled: bool) -> Ui<()> {
+    app.unlocked(|e| Ok(e.allow_drafts(crate::state::client_id(&id)?, enabled)?))
+}
+#[tauri::command(async)]
+pub fn draft_inbox(app: App<'_>) -> Ui<Value> {
+    app.unlocked(|e| Ok(e.draft_inbox()?))
+}
+#[tauri::command(async)]
+pub fn accept_draft(app: App<'_>, id: String, secret: Secret) -> Ui<String> {
+    app.unlocked(|e| {
+        Ok(e.vault_mut()
+            .accept_draft(crate::state::item_id(&id)?, secret.0)?
+            .to_hex())
+    })
+}
+#[tauri::command(async)]
+pub fn reject_drafts(app: App<'_>, id: Option<String>) -> Ui<()> {
+    app.unlocked(|e| {
+        Ok(e.vault()
+            .reject_drafts(id.as_deref().map(crate::state::item_id).transpose()?)?)
+    })
 }

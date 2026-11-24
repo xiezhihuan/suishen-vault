@@ -16,7 +16,7 @@ use crate::policy::FORMAT_VERSION;
 const APPLICATION_ID: i32 = 0x5356_4C54; // "SVLT"
 
 /// 建表语句，同时是打开时核对结构的依据。没有索引、触发器、视图。
-const SCHEMA: [(&str, &str); 9] = [
+const SCHEMA: [(&str, &str); 10] = [
     (
         "audit",
         "CREATE TABLE audit (id INTEGER PRIMARY KEY, blob BLOB NOT NULL) STRICT",
@@ -24,6 +24,10 @@ const SCHEMA: [(&str, &str); 9] = [
     (
         "client",
         "CREATE TABLE client (id BLOB NOT NULL PRIMARY KEY, blob BLOB NOT NULL) STRICT, WITHOUT ROWID",
+    ),
+    (
+        "draft_inbox",
+        "CREATE TABLE draft_inbox (id BLOB PRIMARY KEY, owner BLOB NOT NULL, created INTEGER NOT NULL, blob BLOB NOT NULL) STRICT, WITHOUT ROWID",
     ),
     (
         "header",
@@ -512,7 +516,7 @@ fn configure(conn: &Connection) -> Result<()> {
 }
 
 /// 同一格式内后来增加的表，按加入的先后分批。
-const ADDED: [&[&str]; 2] = [&["audit", "client"], &["remote"]];
+const ADDED: [&[&str]; 3] = [&["audit", "client"], &["remote"], &["draft_inbox"]];
 
 /// 只有完整核对旧结构后才补表，事务可重试。
 fn upgrade(conn: &Connection) -> Result<()> {
@@ -591,8 +595,10 @@ mod upgrade_tests {
     fn older_layouts_gain_the_missing_tables_but_partial_ones_are_refused() {
         for (drop, ok) in [
             (&[][..], true),
-            (&["remote"], true),
-            (&["audit", "client", "remote"], true),
+            (&["draft_inbox"], true),
+            (&["remote", "draft_inbox"], true),
+            (&["remote"], false),
+            (&["audit", "client", "remote", "draft_inbox"], true),
             (&["client"], false),
             (&["audit", "client"], false),
             (&["item", "remote"], false),

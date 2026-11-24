@@ -66,7 +66,7 @@ pub struct DraftIn {
 }
 
 impl DraftIn {
-    fn into_draft(self, old: Secrets) -> ItemDraft {
+    pub(crate) fn into_draft(self, old: Secrets) -> ItemDraft {
         let pick = |new: Option<Secret>, old: Option<SecretString>| match new {
             Some(s) => (!s.0.is_empty()).then_some(s.0),
             None => old,
@@ -151,6 +151,7 @@ struct Clocked {
     activity_wall: SystemTime,
     last_tick: SystemTime,
     screen_locked: bool,
+    last_inbox_sweep: Option<Instant>,
     seen: HashSet<String>,
 }
 
@@ -190,6 +191,7 @@ fn clock_start() -> Clocked {
         activity_wall: SystemTime::now(),
         last_tick: SystemTime::now(),
         screen_locked: false,
+        last_inbox_sweep: None,
         seen: HashSet::new(),
     }
 }
@@ -257,7 +259,7 @@ impl AppState {
     }
 
     /// 只在完全解锁时执行。
-    fn unlocked<T>(&self, f: impl FnOnce(&mut Engine) -> Ui<T>) -> Ui<T> {
+    pub(crate) fn unlocked<T>(&self, f: impl FnOnce(&mut Engine) -> Ui<T>) -> Ui<T> {
         self.engine(|e| {
             if e.vault().lock_state() != LockState::Unlocked {
                 return Err(UiError::locked());
@@ -345,7 +347,7 @@ impl AppState {
     pub fn tick(&self, screen_locked: bool) -> Tick {
         let idle_limit =
             Duration::from_secs(u64::from(hold(&self.settings).auto_lock_minutes) * 60);
-        let reason = {
+        let (reason, sweep_inbox) = {
             let mut c = hold(&self.clocked);
             let now = SystemTime::now();
             // 系统时间回拨也按休眠处理，只会多锁一次
@@ -359,7 +361,13 @@ impl AppState {
             let newly_locked = screen_locked && !c.screen_locked;
             c.last_tick = now;
             c.screen_locked = screen_locked;
-            slept || idle || newly_locked
+            let sweep = c
+                .last_inbox_sweep
+                .is_none_or(|since| since.elapsed() >= Duration::from_secs(60));
+            if sweep {
+                c.last_inbox_sweep = Some(Instant::now());
+            }
+            (slept || idle || newly_locked, sweep)
         };
         if hold(&self.copied).as_ref().is_some_and(Copied::due) {
             self.clear_clipboard();
@@ -369,6 +377,9 @@ impl AppState {
             return out;
         };
         let mut e = hold(&shared);
+        if sweep_inbox && e.vault().device_state() == DeviceState::Active {
+            let _ = e.vault().expire_drafts();
+        }
         let was_unlocked = e.vault().lock_state() == LockState::Unlocked;
         if reason && was_unlocked {
             e.lock_ui();
@@ -953,11 +964,11 @@ impl AppState {
     }
 }
 
-fn item_id(s: &str) -> Ui<ItemId> {
+pub(crate) fn item_id(s: &str) -> Ui<ItemId> {
     ItemId::parse(s).ok_or_else(|| vault_core::Error::UnknownItem.into())
 }
 
-fn client_id(s: &str) -> Ui<ClientId> {
+pub(crate) fn client_id(s: &str) -> Ui<ClientId> {
     hex::decode(s)
         .ok()
         .and_then(|v| v.try_into().ok())

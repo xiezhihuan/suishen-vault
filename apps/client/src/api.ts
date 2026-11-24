@@ -98,6 +98,7 @@ export interface Client {
   name: string;
   tags: string[];
   access: "local" | "direct" | "bridge";
+  drafts_enabled?: boolean;
   search_paused: boolean;
   request_paused: boolean;
 }

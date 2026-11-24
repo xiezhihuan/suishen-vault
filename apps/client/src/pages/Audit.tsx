@@ -3,7 +3,7 @@ import { call, FIELDS, type AiField, type Audit as Data, type AuditEvent } from 
 import { useAction, when } from "../hooks";
 import { Card, ErrorText, Page, TextField, takeForm, text } from "../ui";
 
-const ACTIONS: Record<string, string> = { search: "搜索", request: "提出申请", decision: "你的决定", redeem: "领取明文", state: "状态变化" };
+const ACTIONS: Record<string, string> = { draft_submit:"提交草稿", draft_accept:"接受草稿", draft_reject:"拒绝草稿", search: "搜索", request: "提出申请", decision: "你的决定", redeem: "领取明文", state: "状态变化" };
 const RESULTS: Record<string, string> = {
   ok: "成功", pending: "等待处理", code_issued: "交给 AI（已出码）", view_only: "仅在本机查看", denied: "拒绝", revoked: "撤销", redeemed: "已取走",
   invalid_code: "授权码错误", missing_code: "没带授权码", gone: "已失效", not_ready: "还没批准", unknown_request: "申请不存在", rate_limited: "超过频率限制",

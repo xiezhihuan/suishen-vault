@@ -372,6 +372,13 @@ async fn official_mcp_clients() {
         process::{Command, Stdio},
     };
     let f = Fixture::new().await;
+    f.service
+        .local(|e| {
+            e.unlock(Auth::Password(&PW.into()))?;
+            e.allow_drafts(f.a, true)?;
+            e.allow_drafts(f.b, true)
+        })
+        .unwrap();
     for (mode, token) in [("http", &f.token), ("stdio", &f.other)] {
         let mut child = Command::new("python3")
             .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/sdk_client.py"))
@@ -630,4 +637,133 @@ async fn pending_list_names_the_client_and_item_but_never_secrets() {
             .iter()
             .all(|c| c["search_paused"] == false)
     );
+}
+
+#[tokio::test]
+async fn draft_permissions_validation_concurrency_and_revocation() {
+    let f = Fixture::new().await;
+    let post = |p: &Value| {
+        f.http
+            .post(format!("{}/v1/drafts", f.base))
+            .bearer_auth(f.token.expose())
+            .json(p)
+    };
+    let draft = json!({"title":"合成草稿星云","type":"login","url":"https://例子.test/login","tags":["工作"],"hint":"<b>这里是文字</b>","username":USER});
+    f.failure(post(&draft), 403).await;
+    f.service
+        .local(|e| {
+            e.unlock(Auth::Password(&PW.into()))?;
+            e.allow_drafts(f.a, true)
+        })
+        .unwrap();
+    let mut extra = draft.clone();
+    extra["password"] = json!(SECRET);
+    f.failure(post(&extra), 400).await;
+    let mut bad = draft.clone();
+    bad["hint"] = json!(format!("密码：{SECRET}"));
+    f.failure(post(&bad), 400).await;
+    bad = draft.clone();
+    bad["tags"] = json!(["私人"]);
+    f.failure(post(&bad), 400).await;
+    bad = draft.clone();
+    bad["url"] = json!("https://good.test@bad.test");
+    f.failure(post(&bad), 400).await;
+    f.failure(
+        f.http
+            .post(format!("{}/v1/drafts", f.base))
+            .bearer_auth(f.other.expose())
+            .json(&draft),
+        403,
+    )
+    .await;
+    f.advance(60_001);
+    // 八个同时提交的请求只允许四个；重复提交不揭示正式库或草稿是否已有相同内容。
+    let mut tasks = tokio::task::JoinSet::new();
+    for _ in 0..8 {
+        let req = post(&draft);
+        tasks.spawn(async move {
+            let res = req.send().await.unwrap();
+            (res.status(), res.json::<Value>().await.unwrap())
+        });
+    }
+    let mut accepted = 0;
+    while let Some(done) = tasks.join_next().await {
+        let (status, body) = done.unwrap();
+        if status == 200 {
+            accepted += 1;
+            assert_eq!(body, json!({"submitted":true}));
+        } else {
+            assert_eq!(status, 429);
+        }
+    }
+    assert_eq!(accepted, 4);
+    assert_eq!(f.search("合成草稿星云").await["results"], json!([]));
+    f.service
+        .local(|e| {
+            let inbox = e.draft_inbox()?;
+            assert_eq!(inbox.as_array().unwrap().len(), 4);
+            assert_eq!(inbox[0]["domain"], "xn--fsqu00a.test");
+            assert_eq!(inbox[0]["proposal"]["hint"], "<b>这里是文字</b>");
+            e.lock_ui();
+            assert!(e.draft_inbox().is_err());
+            Ok(())
+        })
+        .unwrap();
+    f.failure(post(&draft), 403).await;
+    f.service
+        .local(|e| {
+            e.unlock(Auth::Password(&PW.into()))?;
+            e.allow_drafts(f.a, false)
+        })
+        .unwrap();
+    f.failure(post(&draft), 403).await;
+    let path = f.dir.path().join("test.svault");
+    f.service.close();
+    assert!(post(&draft).send().await.is_err());
+    // 服务关闭，用户保留待审草稿；重启也不能自行打开提交权限。
+    let mut vault = Vault::open_with_clock(&path, f.clock.clone()).unwrap();
+    vault.unlock(Auth::Password(&PW.into())).unwrap();
+    let mut e = Engine::attach(vault, f.clock.clone()).unwrap();
+    assert_eq!(e.draft_inbox().unwrap().as_array().unwrap().len(), 4);
+    assert!(
+        e.propose(f.a, serde_json::from_value(draft.clone()).unwrap())
+            .is_err()
+    );
+    e.allow_drafts(f.a, true).unwrap();
+    e.revoke_client(f.a).unwrap();
+    assert_eq!(e.draft_inbox().unwrap(), json!([]));
+    assert!(
+        e.propose(f.a, serde_json::from_value(draft).unwrap())
+            .is_err()
+    );
+    let audit = e.audit_rows("").unwrap().to_string();
+    assert!(!audit.contains(USER) && !audit.contains(SECRET));
+    assert!(audit.contains("draft_submit"));
+}
+
+#[tokio::test]
+async fn drafts_have_no_read_edit_or_delete_endpoint() {
+    let f = Fixture::new().await;
+    for method in [
+        reqwest::Method::GET,
+        reqwest::Method::PATCH,
+        reqwest::Method::DELETE,
+    ] {
+        let res = f
+            .http
+            .request(method, format!("{}/v1/drafts", f.base))
+            .bearer_auth(f.token.expose())
+            .send()
+            .await
+            .unwrap();
+        assert!(res.status().is_client_error());
+    }
+    let res = f
+        .http
+        .post(format!("{}/v1/drafts", f.base))
+        .json(&json!({"title":"测试","type":"note"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
 }

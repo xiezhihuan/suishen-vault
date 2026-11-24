@@ -149,6 +149,13 @@ fn notify(app: &AppHandle) {
         .show();
 }
 
+/// 固定事件，不传任何密库数据，也不开放 WebView 的全局事件权限。
+pub fn dismiss_entry_assistant(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.eval("window.dispatchEvent(new Event('suishen:locked'))");
+    }
+}
+
 pub fn start_heartbeat(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
@@ -158,6 +165,9 @@ pub fn start_heartbeat(app: &AppHandle) {
             let state = app.state::<AppState>();
             let tick = state.tick(crate::screen::locked());
             // 不自动跳到申请页：可能有没保存的编辑，而且突然切页容易误点。界面有醒目横幅。
+            if tick.locked {
+                dismiss_entry_assistant(&app);
+            }
             if tick.new_request && state.settings().notify {
                 notify(&app);
             }
