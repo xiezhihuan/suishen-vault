@@ -17,7 +17,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 const PAIR_TTL_MS: u64 = 600_000;
 const PAIR_MAX_FAILURES: u8 = 5;
-const GONE: ServiceError = ServiceError(410, "pairing_closed");
+const GONE: ServiceError = ServiceError::new(410, "pairing_closed");
 
 /// 加密存放在密库里，不进备份与迁移包。
 #[derive(Clone, Serialize, Deserialize, Zeroize)]
@@ -50,11 +50,11 @@ pub struct RelayClaim {
 /// 连接跳板并用配对码登记。成功后还须 [`Engine::relay_commit`]。
 pub async fn claim_relay(claim: RelayClaim) -> Result<RelayClaim> {
     let r = &claim.remote;
-    let unreachable = ServiceError(503, "relay_unreachable");
+    let unreachable = ServiceError::new(503, "relay_unreachable");
     let mut io = dial::upgrade(&r.endpoint, r.ca.as_deref(), DEVICE_PATH, DEVICE_PROTOCOL)
         .await
         .map_err(|_| unreachable)?
-        .ok_or(ServiceError(503, "relay_refused"))?;
+        .ok_or(ServiceError::new(503, "relay_refused"))?;
     match handshake::prove(
         &mut io,
         &r.endpoint.authority(),
@@ -65,7 +65,7 @@ pub async fn claim_relay(claim: RelayClaim) -> Result<RelayClaim> {
     .await
     {
         Ok(Verdict::Accepted) => Ok(claim),
-        Ok(_) => Err(ServiceError(403, "relay_code")),
+        Ok(_) => Err(ServiceError::new(403, "relay_code")),
         Err(_) => Err(unreachable),
     }
 }
@@ -136,12 +136,12 @@ impl Engine {
         code: &str,
         auth: Auth<'_>,
     ) -> Result<RelayClaim> {
-        let endpoint = Endpoint::parse(url).map_err(|_| ServiceError(400, "relay_url"))?;
+        let endpoint = Endpoint::parse(url).map_err(|_| ServiceError::new(400, "relay_url"))?;
         let ca = ca.map(str::trim).filter(|s| !s.is_empty());
         if let Some(pem) = ca {
-            parse_ca(pem).map_err(|_| ServiceError(400, "relay_ca"))?;
+            parse_ca(pem).map_err(|_| ServiceError::new(400, "relay_ca"))?;
         }
-        let code = PairCode::parse(code).map_err(|_| ServiceError(400, "relay_code"))?;
+        let code = PairCode::parse(code).map_err(|_| ServiceError::new(400, "relay_code"))?;
         self.verify_user(auth)?;
         let device = match self.stored()? {
             Some(s) => Identity::from_hex(&s.device_key),
@@ -180,9 +180,11 @@ impl Engine {
         Ok(())
     }
     pub(crate) fn remote(&self) -> Result<Remote> {
-        let s = self.stored()?.ok_or(ServiceError(409, "relay_not_set"))?;
+        let s = self
+            .stored()?
+            .ok_or(ServiceError::new(409, "relay_not_set"))?;
         if s.superseded {
-            return Err(ServiceError(409, "relay_superseded"));
+            return Err(ServiceError::new(409, "relay_superseded"));
         }
         Ok(Remote {
             endpoint: Endpoint::parse(&s.url).map_err(|_| OFF)?,
@@ -276,7 +278,7 @@ impl Engine {
         if !bool::from(digest.ct_eq(&p.digest)) {
             p.failures += 1;
             self.pairing_sweep();
-            return Err(ServiceError(403, "invalid_pairing"));
+            return Err(ServiceError::new(403, "invalid_pairing"));
         }
         if !valid_text(label, 64) {
             return Err(BAD);

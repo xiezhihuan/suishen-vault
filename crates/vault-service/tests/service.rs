@@ -361,7 +361,9 @@ async fn pending_cap_denial_cooldown_and_search_quota() {
     for _ in 0..10 {
         assert!(f.search(QUERY).await["results"].is_array())
     }
-    assert_eq!(f.search(QUERY).await["error"], "rate_limited");
+    let limited = f.search(QUERY).await;
+    assert_eq!(limited["error"], "rate_limited");
+    assert_eq!(limited["retry_after_seconds"], 60);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -766,4 +768,109 @@ async fn drafts_have_no_read_edit_or_delete_endpoint() {
         .await
         .unwrap();
     assert_eq!(res.status(), 401);
+}
+
+/// AC-GRT-09：同步放行一百个请求。保留生产连接上限和限流。
+#[tokio::test]
+async fn one_code_one_success_in_a_hundred_concurrent_gets() {
+    let f = Fixture::new().await;
+    let id = f.grant(QUERY, &["password"]).await;
+    let code = f.issue(&id, AiField::Password);
+    let start = Arc::new(tokio::sync::Barrier::new(101));
+    let mut tasks = tokio::task::JoinSet::new();
+    for _ in 0..100 {
+        let req = f.get(&id).header("X-Auth-Code", code.expose());
+        let start = start.clone();
+        tasks.spawn(async move {
+            start.wait().await;
+            req.send().await
+        });
+    }
+    start.wait().await;
+    let mut successes = 0;
+    while let Some(task) = tasks.join_next().await {
+        match task.unwrap() {
+            Ok(r) => {
+                assert_eq!(r.headers()["cache-control"], "no-store");
+                let status = r.status().as_u16();
+                let body = r.text().await.unwrap();
+                if status == 200 {
+                    let v: Value = serde_json::from_str(&body).unwrap();
+                    assert!(v["fields"] == json!([{"name":"password","value":SECRET}]));
+                    successes += 1;
+                } else {
+                    assert!(matches!(status, 410 | 429));
+                    assert!(!body.contains(SECRET) && !body.contains(USER));
+                }
+            }
+            // 监听器在 32 条连接已满时直接关闭新连接。
+            Err(e) => assert!(e.is_request() && !e.is_timeout()),
+        }
+    }
+    assert_eq!(successes, 1);
+}
+
+/// AC-GRT-14、AC-SRC-06：变更后，之前已经看到的摘要和拿到的码均不能继续使用。
+#[tokio::test]
+async fn item_changes_invalidate_pending_and_issued_grants() {
+    for change in ["update", "hide", "trash"] {
+        let f = Fixture::new().await;
+        let pending = f.grant(QUERY, &["password"]).await;
+        let issued = f.grant(QUERY, &["password"]).await;
+        let code = f.issue(&issued, AiField::Password);
+        f.service
+            .local(|e| {
+                e.unlock(Auth::Password(&PW.into()))?;
+                let v = e.vault_mut();
+                let id = v.search(QUERY, 1)?[0].meta.id;
+                match change {
+                    "update" => {
+                        let mut draft = ItemDraft::new(ItemKind::Login, QUERY);
+                        draft.tags = vec!["工作".into()];
+                        draft.secrets.password = Some("Fake-Revised-901".into());
+                        v.update(id, &draft)?;
+                    }
+                    "hide" => v.set_ai_hidden(id, true)?,
+                    _ => v.trash(id)?,
+                }
+                Ok(())
+            })
+            .unwrap();
+        for id in [&pending, &issued] {
+            assert_eq!(
+                f.failure(f.get(id).header("x-auth-code", code.expose()), 410)
+                    .await["state"],
+                "revoked"
+            );
+        }
+        if change != "update" {
+            assert_eq!(f.search(QUERY).await["results"], json!([]));
+        }
+    }
+}
+
+#[tokio::test]
+async fn other_client_cannot_burn_the_owners_five_attempts() {
+    let f = Fixture::new().await;
+    let id = f.grant(QUERY, &["password"]).await;
+    let code = f.issue(&id, AiField::Password);
+    for _ in 0..5 {
+        f.failure(
+            f.http
+                .get(format!("{}/v1/requests/{id}/secret", f.base))
+                .bearer_auth(f.other.expose())
+                .header("x-auth-code", "00000000"),
+            404,
+        )
+        .await;
+    }
+    assert_eq!(
+        f.get(&id)
+            .header("x-auth-code", code.expose())
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
 }

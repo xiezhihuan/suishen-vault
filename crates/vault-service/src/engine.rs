@@ -16,13 +16,25 @@ use vault_tunnel::PublicKey;
 use zeroize::Zeroizing;
 
 #[derive(Debug, Clone, Copy)]
-pub struct ServiceError(pub u16, pub &'static str);
+pub struct ServiceError(pub u16, pub &'static str, pub Option<u64>);
+impl ServiceError {
+    pub const fn new(status: u16, code: &'static str) -> Self {
+        Self(status, code, None)
+    }
+
+    pub fn payload(self) -> Value {
+        let mut data = json!({"error": self.1});
+        if let Some(seconds) = self.2 {
+            data["retry_after_seconds"] = seconds.into();
+        }
+        data
+    }
+}
 pub(crate) type Result<T> = std::result::Result<T, ServiceError>;
-pub(crate) const BAD: ServiceError = ServiceError(400, "invalid_params");
-pub(crate) const OFF: ServiceError = ServiceError(503, "unavailable");
-const UNKNOWN: ServiceError = ServiceError(404, "unknown_request");
-const ITEM: ServiceError = ServiceError(404, "unknown_item");
-const LIMIT: ServiceError = ServiceError(429, "rate_limited");
+pub(crate) const BAD: ServiceError = ServiceError::new(400, "invalid_params");
+pub(crate) const OFF: ServiceError = ServiceError::new(503, "unavailable");
+const UNKNOWN: ServiceError = ServiceError::new(404, "unknown_request");
+const ITEM: ServiceError = ServiceError::new(404, "unknown_item");
 impl From<vault_core::Error> for ServiceError {
     fn from(_: vault_core::Error) -> Self {
         OFF
@@ -111,7 +123,7 @@ impl Request {
         self.state = self
             .state
             .apply(event)
-            .ok_or(ServiceError(409, "not_ready"))?;
+            .ok_or(ServiceError::new(409, "not_ready"))?;
         if self.state.is_terminal() {
             self.envelope = None;
             self.reason.clear();
@@ -260,7 +272,7 @@ impl Engine {
         }
         self.vault
             .unlock(auth)
-            .map_err(|_| ServiceError(403, "unlock_failed"))?;
+            .map_err(|_| ServiceError::new(403, "unlock_failed"))?;
         let r = f(self);
         self.lock_ui();
         r
@@ -338,7 +350,7 @@ impl Engine {
     pub fn propose(&mut self, id: ClientId, p: vault_core::inbox::Proposal) -> Result<Value> {
         let mut c = self.client(id)?.clone();
         if !c.drafts_enabled || self.vault.lock_state() != LockState::Unlocked {
-            return Err(ServiceError(403, "drafts_disabled"));
+            return Err(ServiceError::new(403, "drafts_disabled"));
         }
         charge(&mut c.draft_attempts, self.clock.wall_ms(), 4)?;
         self.save(id, &c)?;
@@ -348,7 +360,7 @@ impl Engine {
         }
         self.vault.enqueue_draft(id.0, &p).map_err(|e| {
             if e == vault_core::Error::TooLarge {
-                LIMIT
+                ServiceError::new(429, "rate_limited")
             } else {
                 OFF
             }
@@ -394,7 +406,7 @@ impl Engine {
             .find(|(_, c)| bool::from(digest.ct_eq(&c.digest)))
             .filter(|(_, c)| c.access.allows(origin))
             .map(|(id, _)| *id)
-            .ok_or(ServiceError(401, "unauthorized"))
+            .ok_or(ServiceError::new(401, "unauthorized"))
     }
     /// 端到端握手时核对：已配对的桥接，或正在等待配对。
     pub(crate) fn knows_bridge(&self, key: &PublicKey) -> bool {
@@ -409,7 +421,7 @@ impl Engine {
     fn client(&self, id: ClientId) -> Result<&Client> {
         self.clients
             .get(&id)
-            .ok_or(ServiceError(401, "unauthorized"))
+            .ok_or(ServiceError::new(401, "unauthorized"))
     }
     fn audit(&self, client: ClientId, action: &str, subject: Value, outcome: &str) -> Result<()> {
         self.vault.append_service_audit(&serde_json::to_vec(&json!({"time_ms":self.clock.wall_ms(),"client":hex::encode(client.0),"action":action,"subject":subject,"result":outcome})).map_err(|_|OFF)?)?;
@@ -422,14 +434,16 @@ impl Engine {
             .ai()?
             .search_with_tags(client, query, &tags)
             .map_err(|e| match e {
-                AiSearchError::QueryTooShort => ServiceError(400, "query_too_short"),
+                AiSearchError::QueryTooShort => ServiceError::new(400, "query_too_short"),
                 AiSearchError::QueryTooLong => BAD,
-                AiSearchError::RateLimited { .. } => LIMIT,
-                AiSearchError::Paused => ServiceError(429, "search_paused"),
+                AiSearchError::RateLimited { retry_after_ms } => {
+                    ServiceError(429, "rate_limited", Some(retry_after_ms.div_ceil(1000)))
+                }
+                AiSearchError::Paused => ServiceError::new(429, "search_paused"),
                 _ => OFF,
             });
         // 限频后的拒绝不再写入数据库，避免无界日志写入。
-        if !matches!(result, Err(ServiceError(429, "rate_limited"))) {
+        if !matches!(result, Err(ServiceError(429, "rate_limited", _))) {
             let mut matches = Vec::new();
             if let Ok(hits) = &result {
                 let mut gateway = self.vault.ai()?;
@@ -501,7 +515,7 @@ impl Engine {
             .map_err(|_| ITEM)?;
         let result = (|| {
             if !valid_text(reason, 200) {
-                return Err(ServiceError(400, "invalid_reason"));
+                return Err(ServiceError::new(400, "invalid_reason"));
             }
             let (rev, meta) = self.vault.ai_item(item, &c.tags).map_err(|_| ITEM)?;
             check_fields(&fields, AiField::requestable(meta.kind))?;
@@ -510,13 +524,13 @@ impl Engine {
                     .get(&item.to_hex())
                     .is_some_and(|until| now < *until)
             {
-                return Err(ServiceError(429, "cooldown"));
+                return Err(ServiceError::new(429, "cooldown"));
             }
             let pending = self.requests.values().filter(|r| r.state == State::Pending);
             if pending.clone().count() >= 10
                 || pending.filter(|r| r.client == client).count() >= policy::MAX_PENDING_PER_CLIENT
             {
-                return Err(ServiceError(429, "too_many_pending"));
+                return Err(ServiceError::new(429, "too_many_pending"));
             }
             let id = format!("req_{}", hex::encode(random::<16>()?));
             self.audit(
@@ -641,7 +655,7 @@ impl Engine {
         let values = self
             .vault
             .reveal_for_grant(r.item, &fields, auth)
-            .map_err(|_| ServiceError(403, "unlock_failed"))?;
+            .map_err(|_| ServiceError::new(403, "unlock_failed"))?;
         // 直接借用 SecretString 写入可清零的缓冲区，不将机密复制进 JSON Value。
         let rows = values
             .iter()
@@ -683,7 +697,7 @@ impl Engine {
         let r = self.requests.get_mut(id).ok_or(UNKNOWN)?;
         if r.age(self.clock.wall_ms(), self.clock.mono_ms()) >= 600000 {
             r.transition(Event::RequestTimeout)?;
-            return Err(ServiceError(410, "gone"));
+            return Err(ServiceError::new(410, "gone"));
         }
         r.fields = fields;
         r.wall = self.clock.wall_ms();
@@ -715,12 +729,12 @@ impl Engine {
             self.owned(client, id)?;
             let r = self.requests.get_mut(id).ok_or(UNKNOWN)?;
             if r.state == State::Pending {
-                return Err(ServiceError(409, "not_ready"));
+                return Err(ServiceError::new(409, "not_ready"));
             }
             if !r.state.may_redeem() {
-                return Err(ServiceError(410, "gone"));
+                return Err(ServiceError::new(410, "gone"));
             }
-            let code = code.ok_or(ServiceError(400, "missing_code"))?;
+            let code = code.ok_or(ServiceError::new(400, "missing_code"))?;
             let env = r.envelope.as_ref().ok_or(OFF)?;
             match env.open(&self.key, &r.aad()?, code) {
                 Ok(data) => {
@@ -732,7 +746,7 @@ impl Engine {
                     if r.failures >= policy::AUTH_CODE_MAX_FAILURES {
                         r.transition(Event::FailuresExhausted)?;
                     }
-                    Err(ServiceError(403, "invalid_code"))
+                    Err(ServiceError::new(403, "invalid_code"))
                 }
             }
         })();
@@ -769,7 +783,7 @@ impl Engine {
     pub fn verify_user(&mut self, auth: Auth<'_>) -> Result<()> {
         self.vault
             .reauthenticate(auth)
-            .map_err(|_| ServiceError(403, "unlock_failed"))
+            .map_err(|_| ServiceError::new(403, "unlock_failed"))
     }
     pub fn resume_search(&mut self, id: ClientId, auth: Auth<'_>) -> Result<()> {
         self.with_unlocked(auth, |e| Ok(e.vault.resume_ai_search(id)?))
@@ -783,14 +797,16 @@ fn check_fields(fields: &[AiField], allowed: &[AiField]) -> Result<()> {
             .enumerate()
             .any(|(i, f)| !allowed.contains(f) || fields[..i].contains(f))
     {
-        return Err(ServiceError(400, "invalid_fields"));
+        return Err(ServiceError::new(400, "invalid_fields"));
     }
     Ok(())
 }
 pub(crate) fn charge(times: &mut Vec<i64>, now: i64, limit: usize) -> Result<()> {
     times.retain(|t| now.saturating_sub(*t) < 60000);
     if times.len() >= limit {
-        return Err(LIMIT);
+        let earliest = times.iter().copied().min().unwrap_or(now);
+        let ms = earliest.saturating_add(60_000).saturating_sub(now).max(1) as u64;
+        return Err(ServiceError(429, "rate_limited", Some(ms.div_ceil(1000))));
     }
     times.push(now);
     Ok(())

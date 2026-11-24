@@ -1,0 +1,26 @@
+
+> cargo
+> node scripts/cargo.mjs test --locked -p vault-service --test service
+
+   Compiling vault-service v0.1.0 (/Users/tgkj02/.cline/worktrees/ed710/suishen-vault/crates/vault-service)
+    Finished `test` profile [unoptimized] target(s) in 2.71s
+     Running tests/service.rs (/Users/tgkj02/.cache/suishen-vault/target/debug/deps/service-44f627140d9b3719)
+
+running 14 tests
+test official_mcp_clients ... ignored, 需安装官方 Python MCP SDK，并先构建 vault-bridge，见 docs/本机服务.md
+test drafts_have_no_read_edit_or_delete_endpoint ... ok
+test pending_list_names_the_client_and_item_but_never_secrets ... ok
+test reopening_after_expiry_keeps_the_new_session_alive ... ok
+test other_client_cannot_burn_the_owners_five_attempts ... ok
+test one_code_one_success_in_a_hundred_concurrent_gets ... ok
+test stateless_discovery_guards_and_safe_http_methods ... ok
+test host_origin_bounds_scopes_and_revocation ... ok
+test draft_permissions_validation_concurrency_and_revocation ... ok
+test locked_service_isolates_clients_items_fields_and_consumes_atomically ... ok
+test pending_cap_denial_cooldown_and_search_quota ... ok
+test ui_lock_and_service_switch_are_independent ... ok
+test timeout_five_failures_and_local_view ... ok
+test item_changes_invalidate_pending_and_issued_grants ... ok
+
+test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 6.05s
+

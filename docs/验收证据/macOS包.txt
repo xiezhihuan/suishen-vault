@@ -1,0 +1,8 @@
+--prepared:/Users/tgkj02/.cline/worktrees/ed710/suishen-vault/target/acceptance/dmg/SuishenVault.app/Contents/MacOS/vault-bridge
+--validated:/Users/tgkj02/.cline/worktrees/ed710/suishen-vault/target/acceptance/dmg/SuishenVault.app/Contents/MacOS/vault-bridge
+target/acceptance/dmg/SuishenVault.app: valid on disk
+target/acceptance/dmg/SuishenVault.app: satisfies its Designated Requirement
+target/acceptance/dmg/SuishenVault.app/Contents/MacOS/suishen-vault-client: Mach-O 64-bit executable arm64
+target/acceptance/dmg/SuishenVault.app/Contents/MacOS/vault-bridge:         Mach-O 64-bit executable arm64
+     GPT Header（Backup GPT Header：7）：已验证CRC32 $639B389A
+已验证CRC32 $B053FE3A

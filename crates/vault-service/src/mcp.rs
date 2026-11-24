@@ -134,10 +134,11 @@ impl<B: Backend> ServerHandler for Tools<B> {
             };
         Ok(match result {
             Ok(data) => CallToolResult::success(vec![ContentBlock::text(data)]),
-            Err(e) => CallToolResult::error(vec![ContentBlock::text(
-                json!({"error":e.1,"message":"请求未完成，请核对参数或在 App 查看状态。"})
-                    .to_string(),
-            )]),
+            Err(e) => {
+                let mut data = e.payload();
+                data["message"] = "请求未完成，请核对参数或在 App 查看状态。".into();
+                CallToolResult::error(vec![ContentBlock::text(data.to_string())])
+            }
         }
         .into())
     }

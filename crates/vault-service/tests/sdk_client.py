@@ -35,6 +35,14 @@ async def exercise(read, write):
         result = await call("get_secret", request_id=rid, code=code)
         assert result["fields"] == [{"name": "password", "value": "Fake-Violet-Secret-7172"}]
         assert (await sdk.call_tool("get_secret", {"request_id": rid, "code": code})).isError
+        for _ in range(11):
+            hit = await sdk.call_tool("search_entries", {"query": "Cassiopeia"})
+            if hit.isError:
+                error = json.loads(hit.content[0].text)
+                assert error["error"] == "rate_limited" and 0 < error["retry_after_seconds"] <= 60
+                break
+        else:
+            raise AssertionError("搜索未限流")
 
 
 async def main():

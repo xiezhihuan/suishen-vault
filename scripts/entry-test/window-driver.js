@@ -53,13 +53,23 @@ async function exercise(config) {
     )
       throw Error("切片不匹配");
     stage = "提交草稿";
-    const token = await invoke("add_client", { name: "本机 SDK 演示", tags: [], direct: false, password: pw });
+    const token = await invoke("add_client", { name: "本机 SDK 演示", tags: [], direct: config.publicTest, password: pw });
     await click("AI 客户端");
     await click("允许提交草稿");
     await until(() => buttons().some((b) => b.textContent === "关闭草稿提交"));
     await click("开放范围");
-    await click("仅本机");
-    await until(() => document.querySelector(".topbar.loopback"));
+    const openPublic = async () => {
+      await invoke("open_service", { scope: "public", minutes: 15, direct: true });
+      await until(() => document.body.textContent.includes("已连上跳板"));
+    };
+    if (config.publicTest) {
+      const { url, code } = await control("claim");
+      await invoke("relay_claim", { url, code, ca: null, password: pw });
+      await openPublic();
+    } else {
+      await click("仅本机");
+      await until(() => document.querySelector(".topbar.loopback"));
+    }
     await control("submit", { token });
     stage = "确认草稿";
     await click("草稿箱");
@@ -78,6 +88,38 @@ async function exercise(config) {
     await click("密库");
     await until(() => document.body.textContent.includes("北极星测试站"));
     await control("saved-shot");
+    if (config.publicTest) {
+      const request = async query => {
+        const id = await control("request", { token, query });
+        await click("授权申请");
+        await until(() => document.querySelector(".approval"));
+        return id;
+      };
+      const approve = async () => {
+        await input("main input[name=password]", pw);
+        await click("交给 AI");
+        return until(() => document.querySelector('[aria-label="授权码内容"]')?.textContent);
+      };
+      stage = "到期";
+      const expiring = await request("北极星");
+      const expiringCode = await approve();
+      await wait(122000);
+      await control("code_expired", { token, rid: expiring, code: expiringCode });
+      stage = "拒绝";
+      const denied = await request("地平线");
+      await click("拒绝");
+      await until(() => !document.querySelector(".approval"));
+      await control("denied", { token, rid: denied });
+      stage = "关闭公网";
+      const pending = await request("北极星");
+      const pendingCode = await approve();
+      await click("开放范围");
+      await click("全部关闭并撤销授权");
+      await until(() => document.querySelector(".topbar.closed"));
+      await control("closed", { token, rid: pending, code: pendingCode });
+      await openPublic();
+      await control("revoked", { token, rid: pending, code: pendingCode });
+    }
     await invoke("close_service");
     await control("done");
   } catch {

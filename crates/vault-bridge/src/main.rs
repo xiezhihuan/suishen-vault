@@ -30,7 +30,7 @@ enum Link {
     Local { http: Client, base: String },
     Remote(Remote),
 }
-const OFF: ServiceError = ServiceError(503, "unavailable");
+const OFF: ServiceError = ServiceError::new(503, "unavailable");
 
 /// 非法内容变成空值，让设备按错码计一次。
 fn code_header(code: &str) -> reqwest::header::HeaderValue {
@@ -99,6 +99,9 @@ impl Device {
                 .into_iter()
                 .find(|s| *s == key)
                 .unwrap_or("unavailable"),
+            (reply.status == 429 && key == "rate_limited")
+                .then(|| value["retry_after_seconds"].as_u64())
+                .flatten(),
         ))
     }
     /// 公网每次查询都要重新握手，且限流更严，所以查得更稀。

@@ -1,0 +1,65 @@
+
+> @suishen-vault/client@0.1.0 test
+> vitest run --reporter=verbose
+
+
+ RUN  v5.1.1 /Users/tgkj02/.cline/worktrees/ed710/suishen-vault/apps/client
+
+ ✓ src/status.test.ts > 开放范围使用中文名称 1ms
+ ✓ src/test/security.test.js > CSP 只允许应用自身，不含内联、eval、远程地址 3ms
+ ✓ src/test/security.test.js > 权限只有本应用命令，且与后端清单一致 1ms
+ ✓ src/test/security.test.js > 源码不注入 HTML、不持久化、不直接联网、不打印 7ms
+ ✓ src/test/entry-assistant.test.tsx > 逐段核对、手工归类、重复警告、明确新增和清除原文 237ms
+ ✓ src/test/entry-assistant.test.tsx > 取消和锁定都会卸载识别结果 131ms
+ ✓ src/test/entry-assistant.test.tsx > 草稿原文按文字显示、域名完整、补充内容后才允许接受 91ms
+ ✓ src/test/app.test.tsx > 首次设置与解锁 > 主密码两次不一致时不提交；核对恢复密钥后才完成（AC-VLT-01） 520ms
+ ✓ src/test/app.test.tsx > 首次设置与解锁 > 解锁失败显示原因，密码框随即清空 72ms
+ ✓ src/test/app.test.tsx > 首次设置与解锁 > 连续失败时要等待 17ms
+ ✓ src/test/app.test.tsx > 首次设置与解锁 > retired 状态有明确说明 8ms
+ ✓ src/test/app.test.tsx > 首次设置与解锁 > broken 状态有明确说明 6ms
+ ✓ src/test/app.test.tsx > 密库 > 机密默认遮住，点开才取回，失去焦点就遮回（AC-VLT-09） 225ms
+ ✓ src/test/app.test.tsx > 密库 > 显示 30 秒后自动遮回 252ms
+ ✓ src/test/app.test.tsx > 密库 > 锁定后界面上不留任何内容（AC-VLT-05） 181ms
+ ✓ src/test/app.test.tsx > 密库 > 编辑时默认保持原有机密，不取回也不清空 210ms
+ ✓ src/test/app.test.tsx > 密库 > 新增条目可用生成的密码 82ms
+ ✓ src/test/app.test.tsx > 密库 > 只提交该类型用得到的字段 0ms
+ ✓ src/test/app.test.tsx > 密库 > 快捷键呼出搜索时聚焦搜索框 22ms
+ ✓ src/test/app.test.tsx > 授权申请 > 显示客户端、条目、字段、理由，并注明理由未核实、明文去向（AC-GRT-03 AC-GRT-06） 8ms
+ ✓ src/test/app.test.tsx > 授权申请 > 默认焦点在拒绝，2 秒内不能批准（AC-GRT-17） 9ms
+ ✓ src/test/android.test.tsx > Android 密库在服务中重新验证，失败不显示授权码，重试按选中字段出码 2083ms
+ ✓ src/test/android.test.tsx > Android 智能粘贴和草稿补录切后台后清空未提交输入 78ms
+ ✓ src/test/app.test.tsx > 授权申请 > 没有主密码不能批准，按回车也不会批准（AC-GRT-04） 2062ms
+ ✓ src/test/app.test.tsx > 授权申请 > 去掉字段后只交付剩下的；授权码只出现在界面上并有倒计时（AC-GRT-13） 2086ms
+ ✓ src/test/app.test.tsx > 授权申请 > 拒绝不需要主密码 18ms
+ ✓ src/test/app.test.tsx > 授权申请 > 仅在本机查看：显示明文，失去焦点就遮住，不产生授权码（AC-GRT-05） 2067ms
+ ✓ src/test/app.test.tsx > 授权申请 > 授权码 redeemed 后立即从界面消失 3ms
+ ✓ src/test/app.test.tsx > 授权申请 > 授权码 locked 后立即从界面消失 2ms
+ ✓ src/test/app.test.tsx > 授权申请 > 授权码 revoked 后立即从界面消失 3ms
+ ✓ src/test/app.test.tsx > 授权申请 > 到 120 秒授权码消失 13ms
+ ✓ src/test/app.test.tsx > 授权申请 > 界面锁定时只能处理申请，不能浏览（AC-VLT-05） 5ms
+ ✓ src/test/app.test.tsx > 授权申请 > 一键关闭后授权码立即从界面消失（AC-NET-04） 2060ms
+ ✓ src/test/app.test.tsx > 授权申请 > AI 的理由按纯文本显示 5ms
+ ✓ src/test/app.test.tsx > 授权申请 > 自定义字段逐项展开，坏数据不崩溃 0ms
+ ✓ src/test/app.test.tsx > 公网直连的批准提示 > direct 客户端 16ms
+ ✓ src/test/app.test.tsx > 公网直连的批准提示 > bridge 客户端 15ms
+ ✓ src/test/app.test.tsx > 公网直连的批准提示 > local 客户端 16ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 默认关闭；未实现的范围不能点；开启时带上自动关闭时间 53ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 配对跳板后提交的内容正确，机密输入随即清空 140ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 公网默认 1 小时、只开桥接；直连要主动勾选，并说明跳板能看到什么 50ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 被新设备取代时说明原因，不能再开放公网 14ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 桥接配对：配对串显示一次，核对指纹后才确认（AC-MCP-07） 2016ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 没有开放公网时不能发起桥接配对 18ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 签发的令牌只显示一次 97ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 搜索被暂停时提醒并可恢复（AC-SRC-08） 66ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 吊销要先确认，默认焦点在取消 33ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 审计把编号换成标题 0ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 设置失败时说明原因 41ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 迁移中显示只读提示，取消迁移要确认后果 33ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 迁移导入后持续显示完成码 83ms
+ ✓ src/test/app.test.tsx > 开放范围、客户端、审计、设置 > 导入报告列出失败行，删除 CSV 要确认 42ms
+
+ Test Files  5 passed (5)
+      Tests  52 passed (52)
+   Start at  14:29:25
+   Duration  13.67s (tests 78%, environment 17%, setup 3%, import 1%, transform 1%)
+

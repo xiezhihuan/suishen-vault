@@ -36,7 +36,7 @@ use tower_service::Service;
 use vault_core::{ExposureScope, search::ClientId};
 use vault_tunnel::{PublicKey, tls::DEVICE_HOST};
 
-const BUSY: ServiceError = ServiceError(503, "port_in_use");
+const BUSY: ServiceError = ServiceError::new(503, "port_in_use");
 const MAX_BODY: usize = 64 * 1024;
 type Reply = Response<Full<Bytes>>;
 /// App 与服务共用的 Engine。持有其锁时不得再调用 [`ServiceHandle`] 的方法。
@@ -413,7 +413,10 @@ fn reply(status: u16, b: Bytes) -> Reply {
     r
 }
 fn error(e: ServiceError) -> Reply {
-    let mut r = reply(e.0, Bytes::from(json!({"error":e.1}).to_string()));
+    let mut r = reply(e.0, Bytes::from(e.payload().to_string()));
+    if let Some(seconds) = e.2 {
+        r.headers_mut().insert("retry-after", seconds.into());
+    }
     if e.0 == 401 {
         r.headers_mut().insert(
             "www-authenticate",
@@ -433,10 +436,10 @@ fn get_secret(
     req: &hyper::http::request::Parts,
 ) -> Result<Bytes> {
     if req.method != Method::GET {
-        return Err(ServiceError(405, "method_not_allowed"));
+        return Err(ServiceError::new(405, "method_not_allowed"));
     }
     if req.uri.query().is_some() {
-        return Err(ServiceError(400, "query_not_allowed"));
+        return Err(ServiceError::new(400, "query_not_allowed"));
     }
     let (id, true) = request_path(req.uri.path()).ok_or(BAD)? else {
         return Err(BAD);
@@ -447,7 +450,7 @@ fn get_secret(
         .iter()
         .any(|name| h.contains_key(*name))
     {
-        return Err(ServiceError(400, "prefetch_not_allowed"));
+        return Err(ServiceError::new(400, "prefetch_not_allowed"));
     }
     let code = h
         .contains_key("x-auth-code")
@@ -532,7 +535,7 @@ async fn pair(
     let body = Limited::new(req.into_body(), 1024)
         .collect()
         .await
-        .map_err(|_| ServiceError(413, "body_too_large"))?
+        .map_err(|_| ServiceError::new(413, "body_too_large"))?
         .to_bytes();
     let b: PairBody = serde_json::from_slice(&body).map_err(|_| BAD)?;
     let secret = zeroize::Zeroizing::new(b.secret);
@@ -545,13 +548,13 @@ async fn pair(
 async fn route(req: Request<Incoming>, session: Arc<Session>, via: &Via) -> Result<Reply> {
     let h = req.headers();
     if !single(h, "host").is_some_and(|v| via.host_ok(v)) || req.uri().authority().is_some() {
-        return Err(ServiceError(421, "invalid_host"));
+        return Err(ServiceError::new(421, "invalid_host"));
     }
     if h.contains_key("origin") {
-        return Err(ServiceError(403, "invalid_origin"));
+        return Err(ServiceError::new(403, "invalid_origin"));
     }
     if req.uri().query().is_some() {
-        return Err(ServiceError(400, "query_not_allowed"));
+        return Err(ServiceError::new(400, "query_not_allowed"));
     }
     let path = req.uri().path().to_owned();
     let method = req.method().clone();
@@ -562,9 +565,9 @@ async fn route(req: Request<Incoming>, session: Arc<Session>, via: &Via) -> Resu
     match (method.as_str(), path.as_str()) {
         ("GET", "/health") | ("POST", "/mcp" | "/v1/drafts" | "/v1/search" | "/v1/requests") => {}
         ("GET", _) if handle.is_some() => {}
-        (_, _) if handle.is_some() => return Err(ServiceError(405, "method_not_allowed")),
-        (_, "/mcp") => return Err(ServiceError(405, "method_not_allowed")),
-        _ => return Err(ServiceError(404, "not_found")),
+        (_, _) if handle.is_some() => return Err(ServiceError::new(405, "method_not_allowed")),
+        (_, "/mcp") => return Err(ServiceError::new(405, "method_not_allowed")),
+        _ => return Err(ServiceError::new(404, "not_found")),
     }
     let c = session.identify(h, via)?;
     let local = LocalBackend {
@@ -576,7 +579,7 @@ async fn route(req: Request<Incoming>, session: Arc<Session>, via: &Via) -> Resu
     let body = Limited::new(body, MAX_BODY)
         .collect()
         .await
-        .map_err(|_| ServiceError(413, "body_too_large"))?
+        .map_err(|_| ServiceError::new(413, "body_too_large"))?
         .to_bytes();
     if method == Method::GET {
         if !body.is_empty() {
@@ -589,7 +592,7 @@ async fn route(req: Request<Incoming>, session: Arc<Session>, via: &Via) -> Resu
         if secret {
             session.charge(c, "secret", via.limits().secret)?;
             return match get_secret(&session, c, &parts) {
-                Err(ServiceError(410, "gone")) => {
+                Err(ServiceError(410, "gone", _)) => {
                     let state = session.with(|e| e.status(c, id))?;
                     Ok(reply(
                         410,
@@ -609,7 +612,7 @@ async fn route(req: Request<Incoming>, session: Arc<Session>, via: &Via) -> Resu
             .next()
             .is_some_and(|s| s.trim().eq_ignore_ascii_case("application/json"))
     }) {
-        return Err(ServiceError(415, "content_type"));
+        return Err(ServiceError::new(415, "content_type"));
     }
     if path == "/mcp" {
         // SDK 的诊断可能包含输入，向外只返回白名单错误。也不把 Bearer 传入 SDK。

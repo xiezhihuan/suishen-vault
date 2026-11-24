@@ -1,0 +1,65 @@
+npm audit --registry=https://registry.npmjs.org
+{"vulnerabilities": {"info": 0, "low": 0, "moderate": 0, "high": 0, "critical": 0, "total": 0}, "dependencies": {"prod": 7, "dev": 158, "optional": 65, "peer": 13, "peerOptional": 0, "total": 164}}
+
+cargo audit （尝试在线更新）
+Transport handshake failed: operation timed out
+
+cargo audit --no-fetch --json
+本机已缓存 RustSec 修订 52384ab5581a4487b62c549eef95cf7ba7e8bad5
+公告 1563，锁文件依赖 591，漏洞 0
+RUSTSEC-2026-0543 chrono 0.4.45 unmaintained
+RUSTSEC-2024-0370 proc-macro-error 1.0.4 unmaintained
+RUSTSEC-2026-0371 zbus_names 4.3.5 unmaintained
+RUSTSEC-2026-0370 zvariant 5.15.1 unmaintained
+RUSTSEC-2026-0372 zvariant_derive 5.15.1 unmaintained
+RUSTSEC-2024-0429 glib 0.18.5 unsound
+
+cargo metadata --format-version 1 --offline --locked + package-lock.json
+许可证表达式、包数（含传递和构建依赖）
+Rust
+268  MIT OR Apache-2.0
+125  MIT
+ 68  Apache-2.0 OR MIT
+ 18  Unicode-3.0
+ 17  MIT/Apache-2.0
+ 17  Zlib OR Apache-2.0 OR MIT
+ 14  Unlicense OR MIT
+  7  MPL-2.0
+  7  Apache-2.0
+  6  None
+  5  Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+  3  BSD-3-Clause
+  3  Apache-2.0/MIT
+  3  Unlicense/MIT
+  3  ISC
+  3  MIT OR Apache-2.0 OR Zlib
+  2  BSL-1.0
+  2  Zlib
+  2  MIT OR Zlib OR Apache-2.0
+  2  BSD-3-Clause OR MIT OR Apache-2.0
+  2  MIT OR Apache-2.0 OR LGPL-2.1-or-later
+  2  (MIT OR Apache-2.0) AND Unicode-3.0
+  2  BSD-2-Clause OR Apache-2.0 OR MIT
+  1  0BSD OR MIT OR Apache-2.0
+  1  BSD-3-Clause AND MIT
+  1  BSD-3-Clause/MIT
+  1  Apache-2.0 AND MIT
+  1  CC0-1.0 OR MIT-0 OR Apache-2.0
+  1  Apache-2.0 / MIT
+  1  Apache-2.0 AND ISC
+  1  Apache-2.0 OR ISC OR MIT
+  1  Apache-2.0 WITH LLVM-exception
+  1  CDLA-Permissive-2.0
+npm
+101  MIT
+ 25  Apache-2.0
+ 13  Apache-2.0 OR MIT
+ 12  MPL-2.0
+  3  None
+  2  MIT-0
+  2  BSD-2-Clause
+  2  ISC
+  2  BSD-3-Clause
+  1  BlueOak-1.0.0
+  1  CC0-1.0
+  1  0BSD

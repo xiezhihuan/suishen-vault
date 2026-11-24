@@ -1,0 +1,231 @@
+ Test Files  5 passed (5)
+      Tests  52 passed (52)
+test shell::tests::notice_is_a_fixed_text ... ok
+test clipboard::paste_tests::must_match_both_content_and_copy_generation ... ok
+test shell::tests::navigation_stays_inside_the_app ... ok
+test mcp_config::tests::public_configs_point_at_the_relay ... ok
+test mcp_config::tests::configs_cover_both_clients_and_never_carry_tokens ... ok
+test state::tests::a_broken_vault_is_kept_aside_not_deleted ... ok
+test state::tests::csv_import_reports_rows_and_deletes_only_on_request ... ok
+test state::tests::secrets_in_searchable_text_are_refused_without_echoing_them ... ok
+test state::tests::migration_can_be_cancelled_and_active_vaults_cannot_be_wiped ... ok
+test state::tests::items_survive_restart_and_are_unreachable_while_locked ... ok
+test state::tests::settings_are_checked_and_never_persist_the_scope ... ok
+test state::tests::setup_writes_nothing_until_the_recovery_key_is_confirmed ... ok
+test state::tests::recovery_key_resets_the_master_password_and_is_replaced ... ok
+test state::tests::backup_restores_on_an_empty_device_only ... ok
+test state::tests::password_change_and_recovery_reissue ... ok
+test state::tests::idle_sleep_and_screen_lock_all_lock_the_vault ... ok
+test state::tests::migration_moves_the_vault_and_retires_the_old_device ... ok
+test state::tests::trash_actions ... ok
+test state::tests::device_slot_authorizes_only_the_requested_fields_while_ui_stays_locked ... ok
+test state::tests::service_requests_and_approval ... ok
+test state::tests::public_scope_needs_a_paired_relay_and_moves_to_the_new_device ... ok
+test result: ok. 21 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test relay_limits_each_source ... ok
+test public_limits_are_stricter ... ok
+test pairing_is_one_time_and_confirmed_on_the_device ... ok
+test both_modes_and_capture ... ok
+test forged_devices_are_refused ... ok
+test reconnect_after_network_loss ... ok
+test takeover_replaces_the_old_device ... ok
+test switches_take_effect_at_once ... ok
+test result: ok. 8 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 20.94s
+test backoff::tests::stored_backoff_survives_restart_and_clock_changes ... ok
+test backoff::tests::delay_grows_and_is_capped ... ok
+test crypto::aead::tests::length_is_hidden_within_a_block ... ok
+test crypto::aead::tests::xchacha20poly1305_draft_vector ... ok
+test crypto::aead::tests::aad_parts_are_injective ... ok
+test crypto::code::tests::human_input_is_normalized ... ok
+test crypto::code::tests::shapes_match_the_design ... ok
+test crypto::aead::tests::unpad_never_panics ... ok
+test crypto::code::tests::typo_is_detected ... ok
+test crypto::kdf::tests::argon2id_rfc9106_vector ... ok
+test crypto::kdf::tests::params_outside_limits_are_rejected ... ok
+test crypto::code::tests::parsing_never_panics ... ok
+test crypto::tests::hkdf_rfc5869_case_1 ... ok
+test delivery::tests::changing_any_grant_binding_fails_with_the_correct_code ... ok
+test crypto::aead::tests::any_bit_flip_or_truncation_fails ... ok
+test fsutil::tests::size_limit_is_enforced ... ok
+test generator::tests::rejects_bad_options_and_does_not_repeat ... ok
+test generator::tests::respects_options ... ok
+test grant::tests::only_explicit_ai_approval_reaches_code_issued ... ok
+test grant::tests::redeem_is_single_use ... ok
+test grant::tests::revoke_works_from_every_live_state ... ok
+test grant::tests::terminal_states_reject_every_event ... ok
+test grant::tests::view_only_never_becomes_redeemable ... ok
+test import::csv::tests::dialects ... ok
+test crypto::aead::tests::round_trip ... ok
+test fsutil::tests::atomic_write_never_overwrites_and_leaves_no_temp ... ok
+test mask::tests::documented_shapes ... ok
+test crypto::kdf::tests::argon2id_reference_vector_through_our_path ... ok
+test mask::tests::email_length_is_hidden ... ok
+test import::csv::tests::never_panics ... ok
+test model::tests::clean_line_removes_control_and_bidi ... ok
+test mask::tests::never_panics ... ok
+test import::csv::tests::round_trips_any_text ... ok
+test model::tests::fields_must_fit_the_kind ... ok
+test mask::tests::never_reveals_full_account_or_length ... ok
+test model::tests::host_extraction ... ok
+test model::tests::secrets_in_metadata_are_rejected ... ok
+test model::tests::custom_decoding_never_panics ... ok
+test model::tests::totp_is_never_requestable ... ok
+test policy::tests::crockford_alphabet_has_no_ambiguous_letters ... ok
+test policy::tests::limits_match_the_approved_plan ... ok
+test scope::tests::default_is_closed_and_opens_nothing ... ok
+test scope::tests::public_scope_does_not_open_lan ... ok
+test scope::tests::wire_names_are_stable ... ok
+test sealed::tests::data_keys_are_independent ... ok
+test sealed::tests::digest_pins_the_exact_ciphertext ... ok
+test model::tests::host_never_panics ... ok
+test sealed::tests::fields_are_bound_to_everything_and_need_the_secret_key ... ok
+test search::query::tests::ai_minimum_length ... ok
+test sealed::tests::metadata_is_bound_to_item_rev_vault_and_key ... ok
+test search::query::tests::natural_language_is_segmented ... ok
+test search::tests::finds_by_every_route ... ok
+test search::tests::github_com_finds_both_and_not_lookalikes ... ok
+test search::tests::unrelated_queries_return_nothing ... ok
+test search::text::tests::cjk_loose ... ok
+test search::text::tests::folding ... ok
+test crypto::kdf::tests::password_is_nfc_normalized ... ok
+test search::text::tests::typos ... ok
+test search::text::tests::pinyin_forms ... ok
+test search::text::tests::fold_is_idempotent ... ok
+test secret::tests::zeroize_clears_key_and_string ... ok
+test secret::tests::random_below_stays_in_range_and_covers ... ok
+test store::upgrade_tests::older_layouts_gain_the_missing_tables_but_partial_ones_are_refused ... ok
+test strength::tests::rejects_short_and_common ... ok
+test totp::tests::parses_seed_and_uri ... ok
+test totp::tests::rfc6238_vectors ... ok
+test model::tests::custom_round_trip ... ok
+test search::text::tests::never_panics_and_is_bounded ... ok
+test crash_tests::interrupted_creation_leaves_no_half_vault ... ok
+test crash_tests::power_loss_at_every_step_yields_old_or_new_state ... ok
+test crash_tests::power_loss_during_other_operations ... ok
+test crash_tests::damaged_files_are_rejected_or_consistent_never_mixed ... ok
+test crash_tests::random_byte_corruption_never_yields_wrong_data ... ok
+test result: ok. 73 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.81s
+test backup_with_downgraded_kdf_is_rejected ... ok
+test restore_never_touches_existing_files ... ok
+test migrating_flag_cannot_be_cleared_by_editing ... ok
+test old_backup_still_opens_with_old_password_only ... ok
+test package_needs_both_code_and_password ... ok
+test migration_can_be_cancelled_and_failed_export_rolls_back ... ok
+test backup_restores_with_password_or_recovery_key ... ok
+test full_migration ... ok
+test editing_the_retired_flag_does_not_revive_the_old_device ... ok
+test every_kind_of_backup_damage_is_rejected ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.74s
+test changed_csv_is_not_deleted ... ok
+test unrecognized_files_change_nothing ... ok
+test keepassxc ... ok
+test chrome ... ok
+test keepass_backslash_dialect ... ok
+test bad_rows_are_reported_and_prompt_warns ... ok
+test bitwarden ... ok
+test report_contains_no_content ... ok
+test secrets_in_titles_tags_and_domains_are_moved_not_lost ... ok
+test whitespace_only_password_survives_import ... ok
+test arbitrary_rows_are_never_silently_lost ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.27s
+test reject_unsafe_metadata_for_all_fields ... ok
+test upgrade_restart_expiry_cap_acceptance_and_atomicity ... ok
+test backup_and_migration_exclude_inbox ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.72s
+test totp_matches_rfc_vector_through_the_vault ... ok
+test rejected_update_leaves_item_unchanged ... ok
+test update_replaces_everything_and_removes_old_fields ... ok
+test all_kinds_round_trip_after_reopen ... ok
+test missing_fields_are_omitted_and_custom_is_a_group ... ok
+test reveal_needs_fresh_auth_and_returns_only_approved_fields ... ok
+test trash_restore_purge_and_expiry ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+test child_writer ... ok
+test killing_the_writer_never_corrupts_the_vault ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.64s
+test scanner_itself_works ... ok
+test database_does_not_reveal_kinds_or_secret_lengths ... ok
+test errors_never_contain_input ... ok
+test no_plaintext_on_disk_through_the_whole_life_cycle ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.77s
+test missing_and_foreign_files_are_refused ... ok
+test setup_writes_nothing_until_recovery_key_is_confirmed ... ok
+test ai_search_needs_at_least_metadata_key ... ok
+test lock_states_gate_every_operation ... ok
+test attempt_is_recorded_before_the_kdf_runs ... ok
+test two_instances_cannot_open_the_same_vault ... ok
+test weak_master_passwords_cannot_be_set ... ok
+test device_key_unlocks_and_can_be_removed ... ok
+test grant_approval_failures_also_count ... ok
+test recovery_key_can_be_reissued_with_password ... ok
+test failures_back_off_and_survive_restart ... ok
+test wrong_password_fails_and_right_one_works_after_reopen ... ok
+test change_password_keeps_ciphertexts_and_invalidates_old ... ok
+test recovery_key_forces_new_password_and_rotates_itself ... ok
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.68s
+test multiline_mixed_unknown_and_boundaries ... ok
+test labeled_matrix ... ok
+test ranges_are_a_lossless_partition ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test malicious_titles_are_sanitized_for_display ... ok
+test local_index_follows_edits ... ok
+test order_is_by_relevance_and_stable ... ok
+test ai_results_are_capped_and_have_only_five_keys ... ok
+test hidden_items_disappear_including_existing_refs ... ok
+test ai_search_never_matches_secrets_but_local_search_does ... ok
+test item_refs_are_random_bound_and_expire ... ok
+test query_limits ... ok
+test enumeration_pause_precedes_disclosure_and_requires_local_unlock_to_resume ... ok
+test quotas_persist_across_reopen_and_isolate_clients ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.24s
+test corrupt_searchable_field_leaves_vault_locked ... ok
+test rolling_back_a_single_row_is_detected ... ok
+test restoring_an_old_password_slot_is_detected ... ok
+test rows_from_another_vault_do_not_decrypt ... ok
+test wrapped_keys_cannot_be_exchanged ... ok
+test failure_counter_tampering_does_not_panic_or_lock_forever ... ok
+test kdf_downgrade_is_rejected_before_unlock ... ok
+test swaps_rollbacks_and_edits_are_detected ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.25s
+test tests::proxy_headers_do_not_reach_the_device ... ok
+test limit::tests::one_noisy_source_does_not_starve_others ... ok
+test state::tests::disk_holds_no_usable_code ... ok
+test state::tests::expired_replaced_and_damaged_codes_are_refused ... ok
+test state::tests::takeover_needs_a_fresh_code_and_survives_restart ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test drafts_have_no_read_edit_or_delete_endpoint ... ok
+test pending_list_names_the_client_and_item_but_never_secrets ... ok
+test reopening_after_expiry_keeps_the_new_session_alive ... ok
+test stateless_discovery_guards_and_safe_http_methods ... ok
+test one_code_one_success_in_a_hundred_concurrent_gets ... ok
+test draft_permissions_validation_concurrency_and_revocation ... ok
+test host_origin_bounds_scopes_and_revocation ... ok
+test locked_service_isolates_clients_items_fields_and_consumes_atomically ... ok
+test pending_cap_denial_cooldown_and_search_quota ... ok
+test timeout_five_failures_and_local_view ... ok
+test ui_lock_and_service_switch_are_independent ... ok
+test result: ok. 11 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 3.76s
+test endpoint::tests::accepts_https_and_loopback_http_only ... ok
+test handshake::tests::oversized_frame_is_refused ... ok
+test paircode::tests::code_survives_copying_by_hand ... ok
+test tls::tests::ca_input_is_checked ... ok
+test handshake::tests::replayed_hello_is_refused ... ok
+test handshake::tests::signature_is_bound_to_host_challenge_and_code ... ok
+test tls::tests::a_copied_public_key_is_not_enough ... ok
+test tls::tests::both_sides_accept_only_the_pinned_key ... ok
+test mux::tests::many_streams_share_one_connection_and_end_together ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+导入 778.075583ms；解锁 262.643167ms；首次搜索3.579125ms；最慢搜索 139.9555ms；新增一条 16.852375ms
+test ten_thousand_items_search_under_200ms ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.82s
+全部通过，共 10 步。

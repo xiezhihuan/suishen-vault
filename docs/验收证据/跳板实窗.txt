@@ -1,0 +1,11 @@
+SDK 检查通过 submit
+SDK 检查通过 request
+SDK 检查通过 redeem
+SDK 检查通过 request
+SDK 检查通过 code_expired
+SDK 检查通过 request
+SDK 检查通过 denied
+SDK 检查通过 request
+SDK 检查通过 closed
+SDK 检查通过 revoked
+macOS 窗口两条录入流程、授权取用与重放拒绝通过，数据库和进程输出扫描通过。

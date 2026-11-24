@@ -1,0 +1,7 @@
+     Running makensis to produce /Users/tgkj02/.cache/suishen-vault/target/x86_64-pc-windows-gnullvm/release/bundle/nsis/SuishenVault_0.1.0_x64-setup.exe
+warning 5202: -OUTPUTCHARSET is disabled for non Win32 platforms.
+        Warn Signing, by default, is only supported on Windows hosts, but you can specify a custom signing command in `bundler > windows > sign_command`, for now, skipping signing the installer...
+    Finished 1 bundle at:
+        /Users/tgkj02/.cache/suishen-vault/target/x86_64-pc-windows-gnullvm/release/bundle/nsis/SuishenVault_0.1.0_x64-setup.exe (6.38 MiB)
+
+dist/SuishenVault_0.1.0_x64-setup.exe: PE32 executable (GUI) Intel 80386, for MS Windows, Nullsoft Installer self-extracting archive
