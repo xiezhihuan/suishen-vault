@@ -1,108 +1,123 @@
-import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState, type FormEvent } from "react";
-import { type AppStatus, scopeLabel } from "./status";
+import { useEffect, useState } from "react";
+import { call, type Status } from "./api";
+import { useActivity, useStatus } from "./hooks";
+import { Audit } from "./pages/Audit";
+import { Backup } from "./pages/Backup";
+import { Clients } from "./pages/Clients";
+import { Exposure, remainingText } from "./pages/Exposure";
+import { Generator } from "./pages/Generator";
+import { Items } from "./pages/Items";
+import { Migration } from "./pages/Migration";
+import { Requests, type Issued } from "./pages/Requests";
+import { Settings } from "./pages/Settings";
+import { Broken, ImportDone, Locked, Recover, Retired, UnlockForm, Welcome, type Completion } from "./pages/Start";
+import { scopeLabel } from "./status";
+import { Card } from "./ui";
 
-type Grant = { request_id: string; title: string; client: string; reason: string; fields: string[]; state: string };
-type Panel = { clients: { id: string; name: string; tags: string[] }[]; requests: Grant[] };
-type Display = { label: string; value: string; ms: number };
-const fieldNames: Record<string, string> = { username: "账号", password: "密码", note: "备注", url: "网址", body: "正文", custom: "自定义字段" };
-const master = () => <label>主密码<input name="password" type="password" autoComplete="off" required /></label>;
-function takeForm(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const data = new FormData(form);
-  const password = form.elements.namedItem("password") as HTMLInputElement | null;
-  if (password) password.value = "";
-  return data;
-}
-
-function ApprovalButtons({ busy }: { busy: boolean }) {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setReady(true), 2000);
-    return () => window.clearTimeout(timer);
-  }, []);
-  return <><button disabled={busy || !ready} value="view">仅在本机查看</button>{" "}
-    <button disabled={busy || !ready} value="issue">交给 AI</button></>;
-}
+const PAGES = {
+  items: "密库", requests: "授权申请", clients: "AI 客户端", exposure: "开放范围", audit: "审计记录",
+  generator: "密码生成", backup: "导入与备份", migration: "设备迁移", settings: "设置",
+} as const;
+type PageId = keyof typeof PAGES;
 
 export function App() {
-  const [status, setStatus] = useState<(AppStatus & { remaining: number | null }) | null>(null);
-  const [panel, setPanel] = useState<Panel | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [display, setDisplay] = useState<Display | null>(null);
-  async function refresh() {
-    const state = await invoke<AppStatus & { remaining: number | null }>("app_status");
-    setStatus(state);
-    if (state.scope === "closed") { setPanel(null); setDisplay(null); }
-    else setPanel(await invoke<Panel>("service_panel"));
-  }
+  const { status, failed, refresh } = useStatus();
+  useActivity();
+  const [page, setPage] = useState<PageId>("items");
+  const [focusSeq, setFocusSeq] = useState(0);
+  const [issued, setIssued] = useState<Issued[]>([]);
+  const [imported, setImported] = useState<Completion | null>(null);
+  // 迁移码只显示一次，切换页面不能丢
+  const [migrationCode, setMigrationCode] = useState("");
+
+  const nav = status?.nav;
   useEffect(() => {
-    const read = () => refresh().catch(() => setError("无法读取服务状态"));
-    void read();
-    const timer = window.setInterval(read, 1500);
-    return () => window.clearInterval(timer);
+    if (!nav?.seq) return;
+    if (nav.target === "requests") setPage("requests");
+    if (nav.target === "search") { setPage("items"); setFocusSeq(nav.seq); }
+  }, [nav?.seq, nav?.target]);
+  useEffect(() => {
+    const on = (e: Event) => setImported((e as CustomEvent<Completion>).detail);
+    window.addEventListener("suishen:imported", on);
+    return () => window.removeEventListener("suishen:imported", on);
   }, []);
-  useEffect(() => {
-    if (!display) return;
-    const hide = () => setDisplay(null);
-    const timer = window.setTimeout(hide, display.ms);
-    window.addEventListener("blur", hide);
-    return () => { window.clearTimeout(timer); window.removeEventListener("blur", hide); };
-  }, [display]);
-  async function act(command: string, args: Record<string, unknown>, label?: string, ms = 30000) {
-    setError(""); setBusy(true); setDisplay(null);
-    try {
-      const value = await invoke<string | null>(command, args);
-      if (label && value) setDisplay({ label, value, ms });
-      await refresh();
-    } catch { setError("操作未完成，请检查主密码、密库路径、端口或申请状态。"); }
-    finally { setBusy(false); }
+  // 服务关闭后授权码已失效；锁定后回到首页
+  useEffect(() => { if (status?.scope === "closed") setIssued([]); }, [status?.scope]);
+  useEffect(() => { if (status?.phase === "locked") { setMigrationCode(""); setPage("items"); } }, [status?.phase]);
+
+  if (!status) return <main className="start"><p role="status">{failed ? "无法读取应用状态，请重新启动。" : "正在打开…"}</p></main>;
+  if (imported) return <ImportDone done={imported} onClose={() => setImported(null)} />;
+  switch (status.phase) {
+    case "empty": return <Welcome refresh={refresh} />;
+    case "broken": return <Broken error={status.open_error} refresh={refresh} />;
+    case "retired": return <Retired refresh={refresh} />;
+    case "locked": return <Locked status={status} refresh={refresh} />;
+    case "serving": return <Serving status={status} refresh={refresh} issued={issued} setIssued={setIssued} />;
+    case "unlocked": break;
   }
-  const open = status && status.scope !== "closed";
-  return <main>
-    <h1>随身密库</h1>
-    {status && <p>开放范围 · <strong>{scopeLabel(status.scope)}</strong> {open && (status.remaining === null ? " · 手动关闭" : " · 剩余 " + Math.ceil(status.remaining / 60) + " 分钟")}</p>}
-    {error && <p role="alert">{error}</p>}
-    {status && !open && <form onSubmit={e => { const f = takeForm(e); void act("open_service", { path: f.get("path"), password: f.get("password"), minutes: Number(f.get("minutes")) }); }}>
-      <label>已有密库的完整路径<input name="path" placeholder="…/我的密库.svault" required /></label>
-      {master()}
-      <label>自动关闭<select name="minutes"><option value="15">15 分钟</option><option value="60">1 小时</option><option value="480">8 小时</option><option value="0">手动关闭</option></select></label>
-      <button disabled={busy}>开启仅本机服务</button>
-    </form>}
-    {open && <><button onClick={() => void act("close_service", {})}>全部关闭并撤销授权</button>
-      <h2>授权申请</h2>
-      {!panel?.requests.length && <p>暂无待处理的申请。</p>}
-      {panel?.requests.map(r => <article key={r.request_id}>
-        <h3>{r.title}</h3><p>客户端 · {r.client}</p><p>AI 提供的理由 · {r.reason}</p>
-        {r.state === "pending" ? <form onSubmit={e => {
-          const action = ((e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value;
-          if (action !== "view" && action !== "issue") { e.preventDefault(); return; }
-          const f = takeForm(e);
-          void act("decide", { id: r.request_id, action, fields: f.getAll("field"), password: f.get("password") }, action === "view" ? "仅在本机查看" : "一次性授权码 · 请自行交给 AI", action === "view" ? 30000 : 120000);
-        }}>
-          <fieldset><legend>允许的字段</legend>{r.fields.map(field => <label key={field}><input type="checkbox" name="field" value={field} defaultChecked />{fieldNames[field]}</label>)}</fieldset>
-          {master()}<p>选择「交给 AI」后，获批明文会进入 AI 服务商的上下文，也可能保存在聊天记录里。</p>
-          <ApprovalButtons busy={busy} />{" "}
-          <button type="button" onClick={() => void act("decide", { id: r.request_id, action: "deny", fields: [], password: "" })}>拒绝</button>
-        </form> : <><p>已出码 · {r.fields.map(f => fieldNames[f]).join("、")}</p><button onClick={() => void act("decide", { id: r.request_id, action: "revoke", fields: [], password: "" })}>撤销授权码</button></>}
-      </article>)}
-      {display && <aside><strong>{display.label}</strong><pre>{display.value}</pre><button onClick={() => setDisplay(null)}>隐藏</button></aside>}
-      <h2>AI 客户端</h2>
-      {panel?.clients.map(c => <article key={c.id}><h3>{c.name}</h3><p>可见标签 · {c.tags.join("、") || "所有对 AI 可见的条目"}</p>
-        <button onClick={() => void act("client_action", { id: c.id, resume: false, password: "" })}>吊销令牌</button>
-        <details><summary>恢复已暂停的搜索</summary><form onSubmit={e => { const f = takeForm(e); void act("client_action", { id: c.id, resume: true, password: f.get("password") }); }}>{master()}<button disabled={busy}>恢复搜索</button></form></details></article>)}
-      <form onSubmit={e => { const f = takeForm(e); void act("add_client", { name: f.get("name"), tags: String(f.get("tags")).split(/[,，]/).map(t => t.trim()).filter(Boolean), password: f.get("password") }, "客户端令牌 · 仅此次显示", 120000); }}>
-        <label>客户端名称<input name="name" maxLength={80} required /></label>
-        <label>可见标签（逗号分隔，留空表示全部）<input name="tags" /></label>
-        {master()}<button disabled={busy}>签发客户端令牌</button>
-      </form>
-      <details><summary>最近 100 条审计记录</summary>
-        <form onSubmit={e => { const f = takeForm(e); void act("audit_history", { password: f.get("password"), query: f.get("query") }, "本机审计记录"); }}>
-          <label>核对搜索词（留空查看全部）<input name="query" /></label>
-          {master()}<button disabled={busy}>查看审计记录</button>
-        </form>
-      </details></>}
-  </main>;
+  const waiting = status.requests.filter((r) => r.state === "pending").length;
+  return (
+    <div className="shell">
+      <nav aria-label="主导航">
+        {(Object.keys(PAGES) as PageId[]).map((id) => (
+          <button key={id} className={page === id ? "on" : ""} aria-current={page === id ? "page" : undefined} onClick={() => setPage(id)}>
+            {PAGES[id]}{id === "requests" && waiting > 0 && <span className="badge" aria-label={`${waiting} 个待处理`}>{waiting}</span>}
+          </button>
+        ))}
+      </nav>
+      <div className="body">
+        <TopBar status={status} refresh={refresh} />
+        {status.migrating && page !== "migration" && <button className="banner" onClick={() => setPage("migration")}>正在迁移，密库只读。点这里完成或取消。</button>}
+        {waiting > 0 && page !== "requests" && <button className="banner urgent" onClick={() => setPage("requests")}>有 {waiting} 个授权申请等你处理</button>}
+        <main>
+          {page === "items" && <Items focusSeq={focusSeq} />}
+          {page === "requests" && <Requests status={status} refresh={refresh} issued={issued} setIssued={setIssued} />}
+          {page === "clients" && <Clients status={status} />}
+          {page === "exposure" && <Exposure status={status} refresh={refresh} />}
+          {page === "audit" && <Audit />}
+          {page === "generator" && <Generator />}
+          {page === "backup" && <Backup migrating={status.migrating} />}
+          {page === "migration" && <Migration status={status} refresh={refresh} code={migrationCode} setCode={setMigrationCode} />}
+          {page === "settings" && <Settings status={status} refresh={refresh} />}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+/** 始终显示开放范围与剩余时间。AC-NET-08 */
+function TopBar({ status, refresh }: { status: Status; refresh: () => Promise<void> }) {
+  const open = status.scope !== "closed";
+  const act = (command: string) => void call(command).then(refresh, () => {});
+  return (
+    <header className={`topbar ${status.scope}`}>
+      <span className="scope"><i className="dot" aria-hidden="true" />开放范围：<strong>{scopeLabel(status.scope)}</strong> <span className="muted">{remainingText(status)}</span></span>
+      <span className="row-actions">
+        {open && <button className="danger" onClick={() => act("close_service")}>全部关闭</button>}
+        {status.phase === "unlocked" && <button onClick={() => act("lock")}>锁定</button>}
+      </span>
+    </header>
+  );
+}
+
+/** 界面已锁、服务在运行：只能处理申请，不能浏览密库。AC-VLT-05 */
+function Serving({ status, refresh, issued, setIssued }: {
+  status: Status; refresh: () => Promise<void>; issued: Issued[]; setIssued: (f: (old: Issued[]) => Issued[]) => void;
+}) {
+  const [forgot, setForgot] = useState(false);
+  return (
+    <div className="body solo">
+      <TopBar status={status} refresh={refresh} />
+      <main>
+        <Requests status={status} refresh={refresh} issued={issued} setIssued={setIssued} />
+        <section className="page"><Card title="密库已锁定">
+          {forgot ? <Recover refresh={refresh} onBack={() => setForgot(false)} /> : <>
+            <p className="muted">服务仍在运行，可以在上面处理申请。查看和编辑要先解锁。</p>
+            <UnlockForm status={status} refresh={refresh} autoFocus={!status.requests.length} />
+            <button className="link" onClick={() => setForgot(true)}>忘了主密码，用恢复密钥重设</button>
+          </>}
+        </Card></section>
+      </main>
+    </div>
+  );
 }

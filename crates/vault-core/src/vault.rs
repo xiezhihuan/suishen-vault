@@ -984,6 +984,12 @@ impl Vault {
         search::quota::QuotaStore::new(&self.store, &keys.mdk, &self.header.vault_id).resume(client)
     }
 
+    /// 该客户端的搜索是否因枚举过多而暂停。界面据此提醒用户。AC-SRC-08
+    pub fn ai_search_paused(&self, client: search::ClientId) -> Result<bool> {
+        search::quota::QuotaStore::new(&self.store, self.mdk()?, &self.header.vault_id)
+            .paused(client)
+    }
+
     // ---- 本机搜索 ----
 
     /// 本机搜索，需完全解锁；除元数据外还匹配账号、正文、备注、网址。

@@ -476,3 +476,158 @@ async fn stateless_discovery_guards_and_safe_http_methods() {
         200
     );
 }
+
+/// App 与服务共用一个 Engine：界面锁定与服务开关互不影响。AC-KEY-05
+#[tokio::test]
+async fn ui_lock_and_service_switch_are_independent() {
+    use std::sync::Mutex;
+    use vault_core::{ListFilter, LockState};
+    let f = Fixture::new().await;
+    f.service.close();
+    let path = f.dir.path().join("test.svault");
+    let open = || Vault::open_with_clock(&path, f.clock.clone()).unwrap();
+    let shared = Arc::new(Mutex::new(Engine::attach(open(), f.clock.clone()).unwrap()));
+    let state = || shared.lock().unwrap().vault().lock_state();
+    // 锁定时不能开启服务，失败后不占用端口
+    assert!(
+        f.service
+            .open_shared(shared.clone(), 0, None)
+            .await
+            .is_err()
+    );
+    assert_eq!(state(), LockState::Locked);
+    shared
+        .lock()
+        .unwrap()
+        .unlock(Auth::Password(&PW.into()))
+        .unwrap();
+    assert_eq!(
+        shared.lock().unwrap().clients().as_array().unwrap().len(),
+        2
+    );
+    let port = f
+        .service
+        .open_shared(shared.clone(), 0, None)
+        .await
+        .unwrap();
+    assert_eq!(state(), LockState::Unlocked);
+    // 界面锁定：服务仍可搜索，但不能浏览
+    shared.lock().unwrap().lock_ui();
+    assert_eq!(state(), LockState::Serving);
+    assert!(
+        shared
+            .lock()
+            .unwrap()
+            .vault()
+            .list(ListFilter::Active)
+            .is_err()
+    );
+    let search = f
+        .http
+        .post(format!("http://127.0.0.1:{port}/v1/search"))
+        .bearer_auth(f.other.expose())
+        .json(&json!({"query":QUERY}))
+        .send()
+        .await
+        .unwrap();
+    let hit: Value = search.json().await.unwrap();
+    assert_eq!(hit["results"].as_array().unwrap().len(), 1);
+    // 已解锁时查审计、恢复搜索都不会把界面锁上
+    shared
+        .lock()
+        .unwrap()
+        .unlock(Auth::Password(&PW.into()))
+        .unwrap();
+    let rows = shared
+        .lock()
+        .unwrap()
+        .audit_history(Auth::Password(&PW.into()), QUERY)
+        .unwrap();
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(state(), LockState::Unlocked);
+    // 关闭服务不影响已解锁的界面；之后锁定才清除全部密钥
+    f.service.close();
+    assert_eq!(state(), LockState::Unlocked);
+    shared.lock().unwrap().lock_ui();
+    assert_eq!(state(), LockState::Locked);
+    assert_eq!(
+        shared.lock().unwrap().clients().as_array().unwrap().len(),
+        0
+    );
+    // 界面锁定时关闭服务，元数据密钥也清除
+    shared
+        .lock()
+        .unwrap()
+        .unlock(Auth::Password(&PW.into()))
+        .unwrap();
+    f.service
+        .open_shared(shared.clone(), 0, Some(Duration::from_millis(200)))
+        .await
+        .unwrap();
+    shared.lock().unwrap().lock_ui();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(state(), LockState::Locked);
+    assert!(f.service.remaining_seconds().is_none());
+}
+
+#[tokio::test]
+async fn reopening_after_expiry_keeps_the_new_session_alive() {
+    use std::sync::Mutex;
+    let f = Fixture::new().await;
+    f.service.close();
+    let vault = Vault::open_with_clock(&f.dir.path().join("test.svault"), f.clock.clone()).unwrap();
+    let shared = Arc::new(Mutex::new(Engine::attach(vault, f.clock.clone()).unwrap()));
+    shared
+        .lock()
+        .unwrap()
+        .unlock(Auth::Password(&PW.into()))
+        .unwrap();
+    f.service
+        .open_shared(shared.clone(), 0, Some(Duration::ZERO))
+        .await
+        .unwrap();
+    let port = f
+        .service
+        .open_shared(shared.clone(), 0, None)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let health = f
+        .http
+        .get(format!("http://127.0.0.1:{port}/health"))
+        .bearer_auth(f.other.expose())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health.status(), 200);
+    shared.lock().unwrap().lock_ui();
+    assert_eq!(
+        shared.lock().unwrap().vault().lock_state(),
+        vault_core::LockState::Serving
+    );
+}
+
+#[tokio::test]
+async fn pending_list_names_the_client_and_item_but_never_secrets() {
+    let f = Fixture::new().await;
+    let id = f.grant(QUERY, &["password"]).await;
+    f.service.local(|e| e.rename_client(f.a, "改名后")).unwrap();
+    assert!(f.service.local(|e| e.rename_client(f.a, " ")).is_err());
+    let list = f.service.local(|e| Ok(e.pending())).unwrap();
+    let row = &list[0];
+    assert_eq!(row["request_id"], id.as_str());
+    assert_eq!(row["client"], "改名后");
+    assert_eq!(row["type"], "login");
+    assert_eq!(row["masked_account"], "f***");
+    assert!(row["expires_in_seconds"].as_u64().unwrap() <= 600);
+    let text = list.to_string();
+    assert!(!text.contains(SECRET) && !text.contains(USER));
+    let clients = f.service.local(|e| Ok(e.clients())).unwrap();
+    assert!(
+        clients
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c["search_paused"] == false)
+    );
+}

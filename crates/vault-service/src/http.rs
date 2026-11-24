@@ -28,10 +28,14 @@ use tokio::{
 use tower_service::Service;
 use vault_core::{ExposureScope, search::ClientId};
 
+const BUSY: ServiceError = ServiceError(503, "port_in_use");
 const MAX_BODY: usize = 64 * 1024;
 type Reply = Response<Full<Bytes>>;
+/// App 与服务共用的 Engine。持有其锁时不得再调用 [`ServiceHandle`] 的方法。
+pub type SharedEngine = Arc<Mutex<Engine>>;
 struct Session {
-    engine: Mutex<Option<Engine>>,
+    /// 关闭时取走，之后的请求一律拒绝，密库也不再被服务占用。
+    engine: Mutex<Option<SharedEngine>>,
     started: Instant,
     wall: SystemTime,
     ttl: Option<Duration>,
@@ -45,21 +49,23 @@ impl Session {
         })
     }
     fn close(&self) {
-        if let Ok(mut slot) = self.engine.lock()
-            && let Some(mut e) = slot.take()
-        {
-            e.shutdown();
+        // 锁即使因其他线程 panic 而中毒，也必须能关闭。
+        let mut slot = self.engine.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(shared) = slot.take() {
+            shared
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .end_service();
         }
     }
     fn with<T>(&self, f: impl FnOnce(&mut Engine) -> Result<T>) -> Result<T> {
-        let mut slot = self.engine.lock().map_err(|_| OFF)?;
         if self.expired() {
-            if let Some(mut e) = slot.take() {
-                e.shutdown();
-            }
+            self.close();
             return Err(OFF);
         }
-        f(slot.as_mut().ok_or(OFF)?)
+        let slot = self.engine.lock().map_err(|_| OFF)?;
+        let shared = slot.as_ref().ok_or(OFF)?;
+        f(&mut *shared.lock().map_err(|_| OFF)?)
     }
     fn identify(&self, headers: &HeaderMap, ip: IpAddr) -> Result<ClientId> {
         let token = single(headers, "authorization")
@@ -148,11 +154,31 @@ impl ServiceHandle {
         port: u16,
         ttl: Option<Duration>,
     ) -> Result<u16> {
+        self.open_shared(Arc::new(Mutex::new(engine)), port, ttl)
+            .await
+    }
+    /// 与界面共用 Engine。
+    pub async fn open_shared(
+        &self,
+        engine: SharedEngine,
+        port: u16,
+        ttl: Option<Duration>,
+    ) -> Result<u16> {
+        if self.session().is_ok() {
+            return Err(OFF);
+        }
+        // 先收尾已到期的上一次会话，否则它的关闭动作会影响新会话。
+        self.close();
         let v4 = TcpListener::bind(("127.0.0.1", port))
             .await
-            .map_err(|_| OFF)?;
+            .map_err(|_| BUSY)?;
         let port = v4.local_addr().map_err(|_| OFF)?.port();
-        let v6 = TcpListener::bind(("::1", port)).await.map_err(|_| OFF)?;
+        let v6 = TcpListener::bind(("::1", port)).await.map_err(|_| BUSY)?;
+        let mut slot = self.running.lock().map_err(|_| OFF)?;
+        if slot.is_some() {
+            return Err(OFF);
+        }
+        engine.lock().map_err(|_| OFF)?.begin_service()?;
         let session = Arc::new(Session {
             engine: Mutex::new(Some(engine)),
             started: Instant::now(),
@@ -161,13 +187,6 @@ impl ServiceHandle {
             failed: Mutex::default(),
             general: Mutex::default(),
         });
-        let mut slot = self.running.lock().map_err(|_| OFF)?;
-        if slot
-            .as_ref()
-            .is_some_and(|r| !r.task.is_finished() && !r.session.expired())
-        {
-            return Err(OFF);
-        }
         let task = tokio::spawn(listen(v4, v6, port, session.clone()));
         *slot = Some(Running { session, task });
         Ok(port)

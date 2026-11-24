@@ -4,7 +4,8 @@ use sha2::{Digest, Sha256};
 use std::{collections::HashMap, sync::Arc};
 use subtle::ConstantTimeEq;
 use vault_core::{
-    Auth, Clock, GrantEvent as Event, GrantState as State, Key, LockMode, SecretString, Vault,
+    Auth, Clock, GrantEvent as Event, GrantState as State, Key, LockMode, LockState, SecretString,
+    Vault,
     delivery::Envelope,
     model::{AiField, ItemId, RevealedValue},
     policy,
@@ -99,6 +100,7 @@ pub enum LocalApproval {
     Code(SecretString),
     View(Zeroizing<Vec<u8>>),
 }
+/// 密库与授权状态的唯一持有者。App 存续期间只有一个，服务开关与界面锁定互不影响。
 pub struct Engine {
     vault: Vault,
     clock: Arc<dyn Clock>,
@@ -106,26 +108,115 @@ pub struct Engine {
     clients: HashMap<ClientId, Client>,
     requests: HashMap<String, Request>,
     redemptions: HashMap<ClientId, Vec<i64>>,
+    serving: bool,
 }
 impl Engine {
-    pub fn new(mut vault: Vault, clock: Arc<dyn Clock>) -> Result<Self> {
-        vault.ai()?;
+    /// 接管刚打开的密库，可处于锁定状态。
+    pub fn attach(vault: Vault, clock: Arc<dyn Clock>) -> Result<Self> {
+        let mut engine = Self {
+            vault,
+            clock,
+            key: Key::random()?,
+            clients: HashMap::new(),
+            requests: HashMap::new(),
+            redemptions: HashMap::new(),
+            serving: false,
+        };
+        if engine.vault.lock_state() != LockState::Locked {
+            engine.load_clients()?;
+        }
+        Ok(engine)
+    }
+    /// 接管已解锁的密库并立即锁定界面，只留元数据密钥。
+    pub fn new(vault: Vault, clock: Arc<dyn Clock>) -> Result<Self> {
+        let mut engine = Self::attach(vault, clock)?;
+        engine.vault.ai()?;
+        engine.vault.lock(LockMode::KeepServing);
+        Ok(engine)
+    }
+    fn load_clients(&mut self) -> Result<()> {
         let mut clients = HashMap::new();
-        for (id, bytes) in vault.service_clients()? {
+        for (id, bytes) in self.vault.service_clients()? {
             clients.insert(
                 ClientId(id),
                 serde_json::from_slice(&bytes).map_err(|_| OFF)?,
             );
         }
-        vault.lock(LockMode::KeepServing);
-        Ok(Self {
-            vault,
-            clock,
-            key: Key::random()?,
-            clients,
-            requests: HashMap::new(),
-            redemptions: HashMap::new(),
+        self.clients = clients;
+        Ok(())
+    }
+
+    // ---- 只供主设备界面调用 ----
+
+    pub fn vault(&self) -> &Vault {
+        &self.vault
+    }
+    pub fn vault_mut(&mut self) -> &mut Vault {
+        &mut self.vault
+    }
+    pub fn into_vault(self) -> Vault {
+        self.vault
+    }
+    pub fn unlock(&mut self, auth: Auth<'_>) -> vault_core::Result<()> {
+        self.vault.unlock(auth)?;
+        self.finish_unlock()
+    }
+    /// 经恢复密钥进入密库后，补上解锁后的准备。
+    pub fn finish_unlock(&mut self) -> vault_core::Result<()> {
+        self.load_clients().map_err(|_| {
+            self.lock_ui();
+            vault_core::Error::Tampered
         })
+    }
+    /// 锁定界面。服务在运行时保留元数据密钥，已签发的授权码不受影响。
+    pub fn lock_ui(&mut self) {
+        self.vault.lock(if self.serving {
+            LockMode::KeepServing
+        } else {
+            LockMode::Full
+        });
+        if self.vault.lock_state() == LockState::Locked {
+            self.clients.clear();
+        }
+    }
+    pub(crate) fn begin_service(&mut self) -> Result<()> {
+        self.vault.ai()?;
+        self.serving = true;
+        Ok(())
+    }
+    /// 使所有申请、授权码、不透明 ID 失效。界面已锁定时清除全部密钥。
+    pub(crate) fn end_service(&mut self) {
+        for r in self
+            .requests
+            .values_mut()
+            .filter(|r| !r.state.is_terminal())
+        {
+            let _ = r.transition(Event::Revoke);
+        }
+        self.requests.clear();
+        self.redemptions.clear();
+        self.vault.revoke_item_refs();
+        self.serving = false;
+        if self.vault.lock_state() != LockState::Unlocked {
+            self.lock_ui();
+        }
+    }
+    /// 完成需要完全解锁的操作后，恢复到原来的锁定状态。
+    fn with_unlocked<T>(
+        &mut self,
+        auth: Auth<'_>,
+        f: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        if self.vault.lock_state() == LockState::Unlocked {
+            self.verify_user(auth)?;
+            return f(self);
+        }
+        self.vault
+            .unlock(auth)
+            .map_err(|_| ServiceError(403, "unlock_failed"))?;
+        let r = f(self);
+        self.lock_ui();
+        r
     }
     fn save(&self, id: ClientId, c: &Client) -> Result<()> {
         self.vault
@@ -164,9 +255,23 @@ impl Engine {
         json!(
             self.clients
                 .iter()
-                .map(|(id, c)| json!({"id":hex::encode(id.0),"name":c.name,"tags":c.tags}))
+                .map(
+                    |(id, c)| json!({"id":hex::encode(id.0),"name":c.name,"tags":c.tags,
+                    "search_paused":self.vault.ai_search_paused(*id).unwrap_or(false),
+                    "request_paused":self.clock.wall_ms() < c.pause_until})
+                )
                 .collect::<Vec<_>>()
         )
+    }
+    pub fn rename_client(&mut self, id: ClientId, name: &str) -> Result<()> {
+        if !valid_text(name, 80) {
+            return Err(BAD);
+        }
+        let mut c = self.client(id)?.clone();
+        c.name = name.to_owned();
+        self.save(id, &c)?;
+        self.clients.insert(id, c);
+        Ok(())
     }
     pub fn revoke_client(&mut self, id: ClientId) -> Result<()> {
         self.vault.remove_client(id.0)?;
@@ -362,8 +467,16 @@ impl Engine {
         self.sweep();
         json!(self.requests.values().filter(|r| !r.state.is_terminal()).filter_map(|r|{
             let c=self.clients.get(&r.client)?;let (_,m)=self.vault.ai_item(r.item,&c.tags).ok()?;
-            Some(json!({"request_id":r.id,"client":c.name,"reason":r.reason,"title":m.title,"fields":r.fields,"state":r.state}))
+            let ttl: u64 = if r.state == State::CodeIssued { 120_000 } else { 600_000 };
+            let left = ttl.saturating_sub(r.age(self.clock.wall_ms(), self.clock.mono_ms())).div_ceil(1000);
+            Some(json!({"request_id":r.id,"client":c.name,"reason":r.reason,"title":m.title,"type":m.kind,
+                "domain":m.domains.first(),"masked_account":m.masked_account,
+                "fields":r.fields,"state":r.state,"expires_in_seconds":left}))
         }).collect::<Vec<_>>())
+    }
+    /// 最近的申请结果，供界面说明授权码是否已被取用。终态保留一小时，不含明文与授权码。
+    pub fn state_of(&self, id: &str) -> Option<State> {
+        self.requests.get(id).map(|r| r.state)
     }
     pub fn deny(&mut self, id: &str) -> Result<()> {
         self.sweep();
@@ -372,6 +485,7 @@ impl Engine {
             .get(id)
             .filter(|r| r.state == State::Pending)
             .ok_or(UNKNOWN)?;
+        let subject = json!({"request_id":id,"item":r.item.to_hex(),"fields":r.fields});
         let mut c = self.client(r.client)?.clone();
         let now = self.clock.wall_ms();
         c.denied.retain(|_, t| *t > now);
@@ -383,7 +497,7 @@ impl Engine {
         }
         self.save(r.client, &c)?;
         self.clients.insert(r.client, c);
-        self.audit(r.client, "decision", json!(id), "denied")?;
+        self.audit(r.client, "decision", subject, "denied")?;
         self.requests
             .get_mut(id)
             .ok_or(UNKNOWN)?
@@ -393,7 +507,8 @@ impl Engine {
         let r = self.requests.get_mut(id).ok_or(UNKNOWN)?;
         r.transition(Event::Revoke)?;
         let c = r.client;
-        self.audit(c, "decision", json!(id), "revoked")
+        let subject = json!({"request_id":id,"item":r.item.to_hex(),"fields":r.fields});
+        self.audit(c, "decision", subject, "revoked")
     }
     pub fn approve(
         &mut self,
@@ -523,26 +638,15 @@ impl Engine {
         )?;
         result
     }
-    pub(crate) fn shutdown(&mut self) {
-        for r in self
-            .requests
-            .values_mut()
-            .filter(|r| !r.state.is_terminal())
-        {
-            let _ = r.transition(Event::Revoke);
-        }
-        self.requests.clear();
-        self.vault.revoke_item_refs();
-        self.vault.lock(LockMode::Full);
-    }
     /// 只在主设备重新解锁后查看。输入候选搜索词即可用指纹核对。
     pub fn audit_history(&mut self, auth: Auth<'_>, query: &str) -> Result<Value> {
-        self.vault.unlock(auth)?;
-        let rows = self.vault.recent_service_audit();
-        self.vault.lock(LockMode::KeepServing);
+        self.with_unlocked(auth, |e| e.audit_rows(query))
+    }
+    /// 界面已解锁时的审计列表。
+    pub fn audit_rows(&self, query: &str) -> Result<Value> {
         let filter = self.vault.query_fingerprint(query)?;
         let mut events = Vec::new();
-        for row in rows? {
+        for row in self.vault.recent_service_audit()? {
             let event: Value = serde_json::from_slice(&row).map_err(|_| OFF)?;
             if query.is_empty() || event["subject"]["query_fingerprint"] == filter {
                 events.push(event);
@@ -556,10 +660,7 @@ impl Engine {
             .map_err(|_| ServiceError(403, "unlock_failed"))
     }
     pub fn resume_search(&mut self, id: ClientId, auth: Auth<'_>) -> Result<()> {
-        self.vault.unlock(auth)?;
-        let r = self.vault.resume_ai_search(id);
-        self.vault.lock(LockMode::KeepServing);
-        Ok(r?)
+        self.with_unlocked(auth, |e| Ok(e.vault.resume_ai_search(id)?))
     }
 }
 fn check_fields(fields: &[AiField], allowed: &[AiField]) -> Result<()> {

@@ -99,6 +99,10 @@ impl<'a> QuotaStore<'a> {
         self.store.set_search_quota(client.0, &blob)
     }
 
+    pub(crate) fn paused(&self, client: ClientId) -> Result<bool> {
+        Ok(self.read(client)?.paused)
+    }
+
     pub(crate) fn resume(&self, client: ClientId) -> Result<()> {
         let mut usage = self.read(client)?;
         usage.resume();

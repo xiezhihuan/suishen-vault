@@ -3,5 +3,5 @@ mod engine;
 mod http;
 pub mod mcp;
 pub use engine::{Engine, LocalApproval, ServiceError};
-pub use http::ServiceHandle;
+pub use http::{ServiceHandle, SharedEngine};
 pub const DEFAULT_PORT: u16 = 47600;

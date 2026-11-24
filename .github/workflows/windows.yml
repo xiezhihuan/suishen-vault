@@ -1,0 +1,65 @@
+# 在 Windows 上构建与测试。还没有实际运行过，见 docs/未验证项.md。
+name: windows
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}\target
+      # 不产生调试信息，节省缓存
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - name: 保持换行符不变
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Rust 工具链
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy --target x86_64-pc-windows-msvc
+          rustup default stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\.cargo\registry
+            ~\.cargo\git
+            target
+          key: windows-${{ hashFiles('Cargo.lock') }}
+          restore-keys: windows-
+      - run: npm ci
+      - name: 全部自动检查
+        run: npm test
+      - name: 剪贴板测试
+        run: npm run test:desktop
+        continue-on-error: true
+      - name: 打 NSIS 安装包
+        run: npm run package -- x86_64-pc-windows-msvc
+      - name: 安装、启动、卸载冒烟
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem target\x86_64-pc-windows-msvc\release\bundle\nsis\*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $app = Join-Path $env:LOCALAPPDATA 'SuishenVault\suishen-vault-client.exe'
+          $p = Start-Process $app -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { throw "应用启动后退出，代码 $($p.ExitCode)" }
+          if (Get-NetTCPConnection -LocalPort 47600 -State Listen -ErrorAction SilentlyContinue) { throw '默认应当关闭，不应监听端口' }
+          Stop-Process $p
+          Start-Process (Join-Path $env:LOCALAPPDATA 'SuishenVault\uninstall.exe') -ArgumentList '/S' -Wait
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SuishenVault-windows
+          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error

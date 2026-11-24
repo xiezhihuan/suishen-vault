@@ -10,6 +10,8 @@
     "mcp:config": "node scripts/mcp-config.mjs",
     "cargo": "node scripts/cargo.mjs",
     "client:dev": "node scripts/tauri.mjs dev",
-    "client:build": "node scripts/tauri.mjs build"
+    "client:build": "node scripts/tauri.mjs build",
+    "package": "node scripts/package.mjs",
+    "test:desktop": "node scripts/cargo.mjs test -p suishen-vault-client --locked -- --ignored"
   }
 }

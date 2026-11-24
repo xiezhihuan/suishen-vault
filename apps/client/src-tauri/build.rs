@@ -1,3 +1,53 @@
+/// 与 `src/commands.rs` 一致。列出后每条命令都要在 capability 里显式授予。
+const COMMANDS: &[&str] = &[
+    "poll",
+    "touch",
+    "setup_begin",
+    "setup_confirm",
+    "cancel_flow",
+    "unlock",
+    "lock",
+    "recovery_begin",
+    "recovery_reissue",
+    "recovery_confirm",
+    "change_password",
+    "list_items",
+    "get_item",
+    "reveal_field",
+    "copy_field",
+    "copy_text",
+    "save_item",
+    "item_action",
+    "empty_trash",
+    "totp_code",
+    "generate",
+    "open_service",
+    "close_service",
+    "list_clients",
+    "add_client",
+    "rename_client",
+    "revoke_client",
+    "resume_client",
+    "decide",
+    "request_state",
+    "audit",
+    "mcp_config",
+    "import_csv",
+    "delete_csv",
+    "export_backup",
+    "pick_package",
+    "restore_backup",
+    "migration_import",
+    "migration_begin",
+    "migration_cancel",
+    "migration_confirm",
+    "wipe_retired",
+    "set_aside",
+    "set_settings",
+];
+
 fn main() {
-    tauri_build::build();
+    let manifest = tauri_build::AppManifest::new().commands(COMMANDS);
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
+        .expect("tauri-build 失败");
 }
